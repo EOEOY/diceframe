@@ -29,6 +29,9 @@ frontend-v2/e2e/
 # 调试临时文件
 _play_js.txt
 
+# 发布打包产物
+dist/
+
 # 临时审计数据
 .tmp_audit_data/
 
@@ -36,6 +39,10 @@ _play_js.txt
 .claude/
 .claude/settings.local.json
 .claude/skills/
+.codex/
+AGENTS.md
+CLAUDE.md
+docs/ARCHITECTURE_CN.md
 
 # Local environment / secrets
 .env

@@ -15,7 +15,7 @@ from src.lorebook.store import LorebookStore
 from src.memory.delta import MemoryStore
 from src.rules.rule_system import RuleSystem
 from src.engine.world_template import load_world_template, world_template_path
-from src.webui.services import bot_access, character_cards, characters, generation, games, logs, maps, memory, tavern, worlds, rules, plugins
+from src.webui.services import bot_access, character_cards, characters, generation, games, logs, maps, memory, tavern, worlds, rules, plugins, system
 from src.webui.services._common import _parse_game_key, _is_safe_world_id
 
 logger = logging.getLogger("trpg")
@@ -66,6 +66,9 @@ class WebAPI:
 
     def clear_plugin_card_cache(self, plugin_id: str) -> dict[str, Any]:
         return plugins.clear_plugin_card_cache(self, plugin_id)
+
+    async def check_updates(self, include_prerelease: bool = False) -> dict[str, Any]:
+        return await system.check_updates(self, include_prerelease)
 
     def _load_world_template(self, world_id: str) -> dict[str, Any] | None:
         """按 world_id 读取世界模板；不存在或非法时返回 None。"""

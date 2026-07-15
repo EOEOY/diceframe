@@ -6,8 +6,6 @@ DiceFrame is a self-hosted AI tabletop RPG table.
 
 It brings the Web UI, character sheets, lorebooks, dice checks, state changes, campaign logs, and optional chat-bot play into one shared game state. Players describe what they want to do in natural language; DiceFrame passes those actions to a GM model, handles dice and state tags, then syncs the result back to the browser.
 
-The English experience currently focuses on Web play. The QQ / NapCat bot is still aimed at Chinese group chats.
-
 ## What It Does
 
 - Web UI for creating games, joining tables, managing characters, lorebooks, rules, logs, and settings.
@@ -43,7 +41,7 @@ python web_server.py
 Open:
 
 ```text
-http://localhost:9876
+http://localhost:18000
 ```
 
 On first launch, go to Settings and enter your model base URL, model name, and API key. You can also provide them with environment variables:
@@ -68,7 +66,7 @@ docker compose up -d --build
 Open:
 
 ```text
-http://localhost:9876
+http://localhost:18000
 ```
 
 Runtime data is stored in `data/`.
