@@ -1,4 +1,4 @@
-"""TRPG 子系统工厂 —— plugin.py 和 web_server.py 共用初始化逻辑。"""
+"""TRPG 子系统工厂 —— WebUI 和插件宿主共用初始化逻辑。"""
 
 from __future__ import annotations
 

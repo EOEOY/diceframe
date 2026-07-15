@@ -1,4 +1,4 @@
-﻿"""LLM 客户端 —— 通过 aiohttp 直连 OpenAI 兼容 API，绕过 MaiBot 性格层。"""
+﻿"""LLM 客户端 —— 通过 aiohttp 直连 OpenAI 兼容 API。"""
 
 from __future__ import annotations
 
@@ -28,7 +28,7 @@ _RETRYABLE_STATUSES = frozenset(_RETRY_BACKOFF) | {408}  # 408 Timeout 也可重
 
 @dataclass
 class ProviderConfig:
-    """模型供应配置（对应 plugin.py 中 ModelProviderConfig 的运行时表示）。"""
+    """模型供应配置。"""
     provider_name: str
     base_url: str
     api_key: str

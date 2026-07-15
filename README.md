@@ -148,7 +148,6 @@ Docker 会把运行数据挂载到项目根目录的 `data/`。详细说明见 [
 
 Bot 不直接读写存档，只通过 Web 服务的 HTTP API 工作。插件开发说明见 [docs/PLUGIN_DEVELOPMENT_CN.md](docs/PLUGIN_DEVELOPMENT_CN.md)。
 
-`plugin.py` 仍保留为旧 MaiBot 兼容入口；日常使用建议走 WebUI 和内置插件宿主。
 
 ## 数据与隐私
 
@@ -177,7 +176,6 @@ data/
 .
 ├── web_server.py          # WebUI 服务入口
 ├── run_qq_bot.py          # QQ Bot 调试入口
-├── plugin.py              # 旧 MaiBot 兼容入口
 ├── frontend-v2/           # Vue 3 + TypeScript 前端源码
 ├── static-v2/             # 前端构建输出入口
 ├── src/
