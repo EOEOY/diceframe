@@ -12,14 +12,17 @@ import {
 } from '@vicons/ionicons5'
 import { useTheme } from '@/composables/useTheme'
 import { useLocale, type Locale } from '@/composables/useLocale'
+import { useUpdateCheck } from '@/composables/useUpdateCheck'
 import ThemeToggle from '@/components/ThemeToggle.vue'
 import BrandLogo from '@/components/BrandLogo.vue'
 import NaiveBridge from '@/components/common/NaiveBridge.vue'
+import StartupUpdateCheck from '@/components/common/StartupUpdateCheck.vue'
 import { readCurrentGame } from '@/stores/gameContext'
 
 const route = useRoute()
 const { naiveTheme, overrides } = useTheme()
 const { locale, setLocale, t } = useLocale()
+const { updateAvailable } = useUpdateCheck()
 
 const items = [
   { id: 'overview', labelKey: 'navOverview', icon: HomeOutline },
@@ -41,7 +44,12 @@ function menuTo(id: string) {
 const menuOptions = computed<MenuOption[]>(() => items.map((n) => ({
   key: n.id,
   icon: () => h(NIcon, null, { default: () => h(n.icon) }),
-  label: () => h(RouterLink, { to: menuTo(n.id) }, { default: () => t(n.labelKey) }),
+  label: () => h(RouterLink, { to: menuTo(n.id) }, {
+    default: () => h('span', { class: 'nav-label' }, [
+      t(n.labelKey),
+      n.id === 'settings' && updateAvailable.value ? h('span', { class: 'nav-update-dot', 'aria-label': '有新版本' }) : null,
+    ]),
+  }),
 })))
 
 const activeKey = computed(() => (route.name as string) ?? '')
@@ -61,6 +69,7 @@ function onLocaleChange(event: Event) {
       <NMessageProvider>
         <NDialogProvider>
           <NaiveBridge>
+            <StartupUpdateCheck />
             <RouterView v-if="fullscreen" v-slot="{ Component }">
               <ThemeToggle class="theme-toggle-floating" />
               <KeepAlive :include="['PlayView']">

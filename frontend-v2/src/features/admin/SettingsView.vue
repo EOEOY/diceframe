@@ -8,6 +8,7 @@ import {
 import { useSettingsStore } from '@/stores/useSettingsStore'
 import { useToast } from '@/composables/useToast'
 import { useConfirm } from '@/composables/useConfirm'
+import { useUpdateCheck } from '@/composables/useUpdateCheck'
 import { errorMessage } from '@/api/client'
 import type { SecretKey } from '@/stores/useSettingsStore'
 import type { AppConfig, SecretField, TestResult } from '@/api/types'
@@ -22,6 +23,7 @@ type SystemStatusItem = { label: string; value: string; detail: string; tone: St
 const store = useSettingsStore()
 const toast = useToast()
 const { confirm } = useConfirm()
+const { updateInfo, updateChecking, checkForUpdates } = useUpdateCheck()
 
 const section = ref<SectionId>('api')
 const sections: { id: SectionId; label: string; icon: Component }[] = [
@@ -51,6 +53,18 @@ const proxySourceLabel = computed(() => {
   return '未配置'
 })
 const proxyFormatLabel = computed(() => (store.config.proxy_supported ? '格式可用' : '格式不支持'))
+const updateTagType = computed<StatusTone>(() => {
+  if (!updateInfo.value) return 'default'
+  if (!updateInfo.value.ok) return 'error'
+  if (updateInfo.value.no_release) return 'info'
+  return updateInfo.value.update_available ? 'warning' : 'success'
+})
+const updateTagLabel = computed(() => {
+  if (!updateInfo.value) return '未检查'
+  if (!updateInfo.value.ok) return '检查失败'
+  if (updateInfo.value.no_release) return '暂无发布版'
+  return updateInfo.value.update_available ? '发现新版本' : '已是最新版'
+})
 function hasSecret(key: SecretKey, field?: SecretField) {
   return Boolean(store.secrets[key]?.trim() || field?.configured)
 }
@@ -162,6 +176,28 @@ async function clearProxy() {
   } catch (e: unknown) {
     toast.error(errorMessage(e))
   }
+}
+
+async function checkUpdate() {
+  try {
+    const result = await checkForUpdates(true)
+    if (!result?.ok) {
+      toast.error(result?.error || '检查更新失败')
+    } else if (result.no_release) {
+      toast.success('仓库暂无公开 Release')
+    } else if (result.update_available) {
+      toast.success(`发现新版本 ${result.latest?.tag_name || result.latest?.version || ''}`)
+    } else {
+      toast.success('当前已是最新版')
+    }
+  } catch (e: unknown) {
+    toast.error(errorMessage(e))
+  }
+}
+
+function openUpdateUrl() {
+  const url = updateInfo.value?.release_url || updateInfo.value?.releases_url || updateInfo.value?.source_url
+  if (url) window.open(url, '_blank', 'noopener')
 }
 </script>
 
@@ -336,29 +372,54 @@ async function clearProxy() {
 
           <!-- 关于 -->
           <div v-show="section === 'about'" class="settings-pane about">
-            <h3>关于 DiceFrame</h3>
-            <p>DiceFrame 是一张可以自己开起来的 AI 跑团桌。你只要给出一个想玩的世界，AI 就能当 GM 带大家进入故事；玩家在浏览器或群聊里说“我想做什么”，剧情、骰子、角色状态和前情都会被一起整理好。</p>
-            <p>它适合熟人小团、临时脑洞、长期连载，也适合一个人先试跑世界。你可以玩奇幻、克苏鲁、赛博朋克、武侠仙侠，也可以把规则和世界书换成自己的味道。</p>
-            <h4>你可以用它做什么</h4>
-            <ul>
-              <li>一句话创建冒险：从“凡人修仙传风格”到“雨夜赛博追凶”都能开局</li>
-              <li>和朋友一起玩：分享网页链接，或把群聊接进同一局</li>
-              <li>少操心杂务：角色卡、骰子、道具、金币、前情提要和私密感知都会帮你记</li>
-              <li>保留桌游味道：规则是建议不是牢笼，GM 和玩家仍然可以自由裁定</li>
-              <li>慢慢养成自己的团：世界书、规则模板和角色都可以继续改、继续玩</li>
-            </ul>
-            <h4>免责声明</h4>
-            <p class="muted">本工具由 AI 生成叙事内容，可能包含不恰当或冒犯性文本，请自行甄别；内容仅供娱乐，不代表开发者立场。请遵守当地法律法规与所用模型的条款。</p>
-            <h4>联系</h4>
-            <p>反馈邮箱：<a href="mailto:yurloe0@gmail.com">yurloe0@gmail.com</a></p>
+            <section class="about-card">
+              <h3>关于 DiceFrame</h3>
+              <p>DiceFrame 是一张可以自己开起来的 AI 跑团桌。你只要给出一个想玩的世界，AI 就能当 GM 带大家进入故事；玩家在浏览器或群聊里说“我想做什么”，剧情、骰子、角色状态和前情都会被一起整理好。</p>
+              <p>它适合熟人小团、临时脑洞、长期连载，也适合一个人先试跑世界。你可以玩奇幻、克苏鲁、赛博朋克、武侠仙侠，也可以把规则和世界书换成自己的味道。</p>
+              <h4>你可以用它做什么</h4>
+              <ul>
+                <li>一句话创建冒险：从“凡人修仙传风格”到“雨夜赛博追凶”都能开局</li>
+                <li>和朋友一起玩：分享网页链接，或把群聊接进同一局</li>
+                <li>少操心杂务：角色卡、骰子、道具、金币、前情提要和私密感知都会帮你记</li>
+                <li>保留桌游味道：规则是建议不是牢笼，GM 和玩家仍然可以自由裁定</li>
+                <li>慢慢养成自己的团：世界书、规则模板和角色都可以继续改、继续玩</li>
+              </ul>
+              <h4>免责声明</h4>
+              <p class="muted">本工具由 AI 生成叙事内容，可能包含不恰当或冒犯性文本，请自行甄别；内容仅供娱乐，不代表开发者立场。请遵守当地法律法规与所用模型的条款。</p>
+              <h4>联系</h4>
+              <p>反馈邮箱：<a href="mailto:yurloe0@gmail.com">yurloe0@gmail.com</a></p>
+            </section>
+            <section class="update-card" aria-label="版本更新">
+              <div class="update-card-head">
+                <div>
+                  <h4>版本更新</h4>
+                </div>
+                <NTag :type="updateTagType" size="small" round>{{ updateTagLabel }}</NTag>
+              </div>
+              <div class="update-meta">
+                <span>当前版本：{{ updateInfo?.current_version || '点击检查后显示' }}</span>
+                <span v-if="updateInfo?.latest">最新版本：{{ updateInfo.latest.tag_name || updateInfo.latest.version }}</span>
+                <span v-if="updateInfo?.latest?.published_at">发布时间：{{ updateInfo.latest.published_at.slice(0, 10) }}</span>
+              </div>
+              <p v-if="updateInfo?.error" class="muted">检查失败：{{ updateInfo.error }}</p>
+              <p v-else-if="updateInfo?.no_release" class="muted">{{ updateInfo.message || '仓库暂无公开 Release。' }}</p>
+              <p v-else-if="updateInfo?.update_available" class="muted">有新版可用。升级前保留 data/ 目录；Docker 用户请用新版源码或镜像重新部署。</p>
+              <div v-if="updateInfo?.latest?.body" class="update-notes">
+                <strong>更新日志</strong>
+                <pre>{{ updateInfo.latest.body }}</pre>
+              </div>
+              <div class="actions-row">
+                <NButton :loading="updateChecking" @click="checkUpdate">检查更新</NButton>
+                <NButton :disabled="!updateInfo?.release_url && !updateInfo?.releases_url && !updateInfo?.source_url" @click="openUpdateUrl">打开发布页</NButton>
+              </div>
+            </section>
             <section class="sponsor-card" aria-label="支持作者">
               <div>
                 <h4>支持作者</h4>
-                <p>如果 DiceFrame 让你的跑团轻松了一点，可以请作者喝杯奶茶。感谢支持。</p>
+                <p>如果 DiceFrame 对你有帮助，欢迎支持项目继续维护。</p>
               </div>
               <img src="/sponsor-wechat-qr.png" alt="微信赞助二维码" loading="lazy">
             </section>
-            <p class="muted">愿每一局都有人敢推门、有人记笔记、有人把骰子掷到桌子下面。</p>
           </div>
         </NSpin>
       </div>

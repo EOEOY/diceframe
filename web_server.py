@@ -27,6 +27,7 @@ from src.webui.routes.auth import register_auth
 from src.webui.routes.pages import register_pages
 from src.webui.routes.bot import register_bot
 from src.webui.routes.plugins import register_plugins
+from src.webui.routes.system import register_system
 
 logger = logging.getLogger("trpg")
 logging.basicConfig(level=logging.INFO, format="%(levelname)-7s %(message)s")
@@ -61,7 +62,7 @@ BASE_URL = (os.getenv("TRPG_LLM_BASE_URL")
             or saved.get("base_url", "https://api.deepseek.com/v1"))
 MODEL = (os.getenv("TRPG_LLM_MODEL")
          or saved.get("model", "deepseek-chat"))
-PORT = int(os.getenv("TRPG_WEB_PORT") or saved.get("web_port", 9876))
+PORT = int(os.getenv("TRPG_WEB_PORT") or saved.get("web_port", 18000))
 HOST = os.getenv("TRPG_WEB_HOST") or saved.get("web_host", "0.0.0.0")
 EMB_ENABLED = saved.get("embedding_enabled", False)
 EMB_BASE_URL = saved.get("embedding_base_url", "")
@@ -784,6 +785,7 @@ def register_routes(application: web.Application) -> None:
     register_games(application)
     register_bot(application)
     register_plugins(application)
+    register_system(application)
     # worlds / lorebook
     register_worlds(application)
     # rules

@@ -7,7 +7,7 @@ This guide is for players and GMs. It explains how to start a game, play turns, 
 Start the Web UI, then open the address printed in the terminal:
 
 ```text
-http://localhost:9876
+http://localhost:18000
 ```
 
 On first use, open Settings and configure your model:
@@ -82,7 +82,7 @@ The GM can see player status in the Play view. Mark a player as Away when they a
 
 ## Chat Bot Note
 
-The QQ / NapCat bot exists, but its commands and expected use are Chinese-first. English play is currently best in the Web UI.
+DiceFrame can also connect a Web game to group chat through the QQ / NapCat plugin.
 
 ## Troubleshooting
 

@@ -58,7 +58,7 @@ python web_server.py
 启动后打开终端里显示的地址，默认是：
 
 ```text
-http://localhost:9876
+http://localhost:18000
 ```
 
 第一次进入设置页，填入模型 API 地址、模型名和 API key。也可以通过环境变量提供：
@@ -97,7 +97,7 @@ docker compose up -d --build
 打开：
 
 ```text
-http://localhost:9876
+http://localhost:18000
 ```
 
 Docker 会把运行数据挂载到项目根目录的 `data/`。详细说明见 [docs/DOCKER_DEPLOY_CN.md](docs/DOCKER_DEPLOY_CN.md)。
@@ -192,7 +192,7 @@ data/
 ├── plugins/qq-napcat/     # 插件 manifest 和配置 schema
 ├── prompts/               # GM 系统提示词
 ├── templates/             # 内置规则和世界模板
-└── docs/                  # 用户手册、部署与插件文档
+└── docs/                  # 用户手册、部署、插件、架构文档
 ```
 
 ## License

@@ -7,7 +7,7 @@
 启动 WebUI 后，浏览器打开终端里显示的地址，默认是：
 
 ```text
-http://localhost:9876
+http://localhost:18000
 ```
 
 第一次进入设置页，先填模型配置：

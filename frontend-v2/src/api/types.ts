@@ -544,3 +544,28 @@ export interface AppConfig {
   [key:string]:unknown
 }
 export interface TestResult { ok:boolean; error?:string; response?:string; elapsed?:number; tokens?:number; dimension?:number; status?:number }
+export interface UpdateAsset { name:string; download_url:string; size?:number }
+export interface UpdateRelease {
+  version:string
+  tag_name?:string
+  name?:string
+  body?:string
+  html_url?:string
+  published_at?:string
+  prerelease?:boolean
+  assets?:UpdateAsset[]
+}
+export interface UpdateCheckResponse {
+  ok:boolean
+  error?:string
+  message?:string
+  current_version:string
+  repository?:string
+  update_available:boolean
+  no_release?:boolean
+  latest?:UpdateRelease
+  release_url?:string
+  releases_url?:string
+  source_url?:string
+  install_hint?:Record<string,string>
+}

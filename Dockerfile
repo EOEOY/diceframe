@@ -14,7 +14,7 @@ FROM python:3.11-slim AS runtime
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     TRPG_WEB_HOST=0.0.0.0 \
-    TRPG_WEB_PORT=9876 \
+    TRPG_WEB_PORT=18000 \
     TRPG_DATA_DIR=/app/data
 
 WORKDIR /app
@@ -31,7 +31,7 @@ COPY --from=frontend-build /build/static-v2 ./static-v2
 
 RUN mkdir -p /app/data
 
-EXPOSE 9876
+EXPOSE 18000
 VOLUME ["/app/data"]
 
 CMD ["python", "web_server.py"]
