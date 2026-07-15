@@ -1,4 +1,4 @@
-"""AI 生成模块 —— 世界生成和角色生成的共用逻辑，供 plugin.py 和 webui/api.py 复用。"""
+"""AI 生成模块 —— 世界生成和角色生成的共用逻辑，供 WebUI 复用。"""
 
 from .creator import generate_character, generate_world, parse_json
 
