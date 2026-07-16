@@ -26,6 +26,56 @@ async def control_plugin(api: "WebAPI", plugin_id: str, action: str) -> dict[str
     await method(plugin_id)
     return {"ok": True, **api._plugins.public_detail(plugin_id)}
 
+async def install_plugin(api: "WebAPI", payload: bytes, overwrite: bool = False) -> dict[str, Any]:
+    if not api._plugins:
+        return {"ok": False, "error": "插件宿主未启用"}
+    return {"ok": True, **await api._plugins.install_from_zip(payload, overwrite=overwrite)}
+
+async def list_plugin_marketplace(api: "WebAPI") -> dict[str, Any]:
+    if not api._plugins:
+        return {"ok": False, "error": "插件宿主未启用", "plugins": []}
+    return await api._plugins.marketplace_plugins()
+
+async def install_marketplace_plugin(api: "WebAPI", plugin_id: str, overwrite: bool = False) -> dict[str, Any]:
+    if not api._plugins:
+        return {"ok": False, "error": "插件宿主未启用"}
+    return {"ok": True, **await api._plugins.install_from_marketplace(plugin_id, overwrite=overwrite)}
+
+async def update_marketplace_plugin(api: "WebAPI", plugin_id: str) -> dict[str, Any]:
+    if not api._plugins:
+        return {"ok": False, "error": "插件宿主未启用"}
+    return {"ok": True, **await api._plugins.update_from_marketplace(plugin_id)}
+
+async def uninstall_plugin(api: "WebAPI", plugin_id: str, delete_data: bool = False) -> dict[str, Any]:
+    if not api._plugins:
+        return {"ok": False, "error": "插件宿主未启用"}
+    return {"ok": True, **await api._plugins.uninstall(plugin_id, delete_data=delete_data)}
+
+def list_plugin_mirrors(api: "WebAPI") -> dict[str, Any]:
+    if not api._plugins:
+        return {"ok": False, "error": "插件宿主未启用", "mirrors": []}
+    return {"ok": True, **api._plugins.list_mirrors()}
+
+def add_plugin_mirror(api: "WebAPI", data: dict[str, Any]) -> dict[str, Any]:
+    if not api._plugins:
+        return {"ok": False, "error": "插件宿主未启用"}
+    return {"ok": True, "mirror": api._plugins.add_mirror(data)}
+
+def update_plugin_mirror(api: "WebAPI", mirror_id: str, data: dict[str, Any]) -> dict[str, Any]:
+    if not api._plugins:
+        return {"ok": False, "error": "插件宿主未启用"}
+    return {"ok": True, "mirror": api._plugins.update_mirror(mirror_id, data)}
+
+def delete_plugin_mirror(api: "WebAPI", mirror_id: str) -> dict[str, Any]:
+    if not api._plugins:
+        return {"ok": False, "error": "插件宿主未启用"}
+    return {"ok": True, **api._plugins.delete_mirror(mirror_id)}
+
+async def test_plugin_mirror(api: "WebAPI", mirror_id: str = "") -> dict[str, Any]:
+    if not api._plugins:
+        return {"ok": False, "error": "插件宿主未启用"}
+    return await api._plugins.test_mirror(mirror_id)
+
 def clear_plugin_card_cache(api: "WebAPI", plugin_id: str) -> dict[str, Any]:
     if not api._plugins:
         return {"ok": False, "error": "插件宿主未启用"}

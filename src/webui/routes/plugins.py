@@ -3,6 +3,8 @@ from __future__ import annotations
 from aiohttp import web
 from src.webui.routes._common import _get_api, _require_confirmed_request
 
+MAX_PLUGIN_PACKAGE_BYTES = 20 * 1024 * 1024
+
 async def api_plugins(request: web.Request) -> web.Response:
     return web.json_response(_get_api(request).list_plugins())
 
@@ -23,6 +25,128 @@ async def api_plugin_control(request: web.Request) -> web.Response:
     try: return web.json_response(await _get_api(request).control_plugin(request.match_info["plugin_id"],request.match_info["action"]))
     except KeyError as exc: return web.json_response({"ok":False,"error":str(exc)},status=404)
 
+async def api_plugin_install(request: web.Request) -> web.Response:
+    denied=_require_confirmed_request(request)
+    if denied is not None: return denied
+    if request.content_type != "multipart/form-data":
+        return web.json_response({"ok":False,"error":"插件安装需要 multipart/form-data"},status=400)
+    try:
+        reader = await request.multipart()
+        payload = b""
+        overwrite = False
+        async for part in reader:
+            if part.name in {"overwrite", "replace"}:
+                overwrite = (await part.text()).strip().lower() in {"1", "true", "yes", "on"}
+                continue
+            if part.name not in {"file", "package"}:
+                continue
+            chunks: list[bytes] = []
+            size = 0
+            while True:
+                chunk = await part.read_chunk()
+                if not chunk:
+                    break
+                size += len(chunk)
+                if size > MAX_PLUGIN_PACKAGE_BYTES:
+                    return web.json_response({"ok":False,"error":"插件包不能超过 20 MB"},status=413)
+                chunks.append(chunk)
+            payload = b"".join(chunks)
+        if not payload:
+            return web.json_response({"ok":False,"error":"缺少插件 zip 文件"},status=400)
+        result = await _get_api(request).install_plugin(payload, overwrite)
+    except ValueError as exc:
+        return web.json_response({"ok":False,"error":str(exc)},status=400)
+    return web.json_response(result,status=200 if result.get("ok") else 400)
+
+async def api_plugin_marketplace(request: web.Request) -> web.Response:
+    result = await _get_api(request).list_plugin_marketplace()
+    return web.json_response(result,status=200 if result.get("ok") else 502)
+
+async def api_plugin_marketplace_install(request: web.Request) -> web.Response:
+    denied=_require_confirmed_request(request)
+    if denied is not None: return denied
+    try:
+        body = await request.json()
+        plugin_id = str(body.get("plugin_id") or "").strip()
+        overwrite = bool(body.get("overwrite"))
+        if not plugin_id:
+            return web.json_response({"ok":False,"error":"缺少 plugin_id"},status=400)
+        result = await _get_api(request).install_marketplace_plugin(plugin_id, overwrite)
+    except ValueError as exc:
+        return web.json_response({"ok":False,"error":str(exc)},status=400)
+    return web.json_response(result,status=200 if result.get("ok") else 400)
+
+async def api_plugin_marketplace_update(request: web.Request) -> web.Response:
+    denied=_require_confirmed_request(request)
+    if denied is not None: return denied
+    try:
+        result = await _get_api(request).update_marketplace_plugin(request.match_info["plugin_id"])
+    except KeyError as exc:
+        return web.json_response({"ok":False,"error":str(exc)},status=404)
+    except ValueError as exc:
+        return web.json_response({"ok":False,"error":str(exc)},status=400)
+    return web.json_response(result,status=200 if result.get("ok") else 400)
+
+async def api_plugin_mirrors(request: web.Request) -> web.Response:
+    return web.json_response(_get_api(request).list_plugin_mirrors())
+
+async def api_plugin_mirror_add(request: web.Request) -> web.Response:
+    denied=_require_confirmed_request(request)
+    if denied is not None: return denied
+    try:
+        result = _get_api(request).add_plugin_mirror(await request.json())
+    except ValueError as exc:
+        return web.json_response({"ok":False,"error":str(exc)},status=400)
+    return web.json_response(result,status=200 if result.get("ok") else 400)
+
+async def api_plugin_mirror_update(request: web.Request) -> web.Response:
+    denied=_require_confirmed_request(request)
+    if denied is not None: return denied
+    try:
+        result = _get_api(request).update_plugin_mirror(request.match_info["mirror_id"], await request.json())
+    except KeyError as exc:
+        return web.json_response({"ok":False,"error":str(exc)},status=404)
+    except ValueError as exc:
+        return web.json_response({"ok":False,"error":str(exc)},status=400)
+    return web.json_response(result,status=200 if result.get("ok") else 400)
+
+async def api_plugin_mirror_delete(request: web.Request) -> web.Response:
+    denied=_require_confirmed_request(request)
+    if denied is not None: return denied
+    try:
+        result = _get_api(request).delete_plugin_mirror(request.match_info["mirror_id"])
+    except KeyError as exc:
+        return web.json_response({"ok":False,"error":str(exc)},status=404)
+    return web.json_response(result,status=200 if result.get("ok") else 400)
+
+async def api_plugin_mirror_test(request: web.Request) -> web.Response:
+    denied=_require_confirmed_request(request)
+    if denied is not None: return denied
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    try:
+        result = await _get_api(request).test_plugin_mirror(str(body.get("mirror_id") or ""))
+    except (KeyError, ValueError) as exc:
+        return web.json_response({"ok":False,"error":str(exc)},status=400)
+    return web.json_response(result,status=200 if result.get("ok") else 400)
+
+async def api_plugin_uninstall(request: web.Request) -> web.Response:
+    denied=_require_confirmed_request(request)
+    if denied is not None: return denied
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    try:
+        result = await _get_api(request).uninstall_plugin(request.match_info["plugin_id"], bool(body.get("delete_data")))
+    except KeyError as exc:
+        return web.json_response({"ok":False,"error":str(exc)},status=404)
+    except ValueError as exc:
+        return web.json_response({"ok":False,"error":str(exc)},status=400)
+    return web.json_response(result,status=200 if result.get("ok") else 400)
+
 async def api_plugin_clear_card_cache(request: web.Request) -> web.Response:
     denied=_require_confirmed_request(request)
     if denied is not None: return denied
@@ -35,7 +159,17 @@ async def api_plugin_clear_card_cache(request: web.Request) -> web.Response:
 
 def register_plugins(app: web.Application) -> None:
     app.router.add_get("/api/plugins",api_plugins)
+    app.router.add_post("/api/plugins/install",api_plugin_install)
+    app.router.add_get("/api/plugins/marketplace",api_plugin_marketplace)
+    app.router.add_post("/api/plugins/marketplace/install",api_plugin_marketplace_install)
+    app.router.add_get("/api/plugins/mirrors",api_plugin_mirrors)
+    app.router.add_post("/api/plugins/mirrors",api_plugin_mirror_add)
+    app.router.add_post("/api/plugins/mirrors/test",api_plugin_mirror_test)
+    app.router.add_put("/api/plugins/mirrors/{mirror_id}",api_plugin_mirror_update)
+    app.router.add_delete("/api/plugins/mirrors/{mirror_id}",api_plugin_mirror_delete)
     app.router.add_get("/api/plugins/{plugin_id}",api_plugin_detail)
     app.router.add_put("/api/plugins/{plugin_id}/config",api_plugin_config)
+    app.router.add_delete("/api/plugins/{plugin_id}",api_plugin_uninstall)
+    app.router.add_post("/api/plugins/{plugin_id}/update",api_plugin_marketplace_update)
     app.router.add_post("/api/plugins/{plugin_id}/card-cache/clear",api_plugin_clear_card_cache)
     app.router.add_post(r"/api/plugins/{plugin_id}/{action:start|stop|restart}",api_plugin_control)

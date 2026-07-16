@@ -554,6 +554,76 @@ export interface PluginInfo {
   schema?: { properties?: Record<string, PluginField> }
   config?: Record<string, unknown>
   error?: string
+  capabilities?: string[]
+  docs?: string
+}
+
+export interface PluginMarketplaceItem {
+  id: string
+  name: string
+  version?: string
+  description?: string
+  repository_url?: string
+  package_url?: string
+  branch?: string
+  author?: unknown
+  license?: string
+  tags?: string[]
+  capabilities?: string[]
+  docs?: string
+  homepage?: string
+  installed?: boolean
+  installed_version?: string
+  manifest?: Record<string, unknown>
+}
+
+export interface PluginMarketplaceResponse {
+  ok: boolean
+  error?: string
+  plugins: PluginMarketplaceItem[]
+  total?: number
+  source?: {
+    mirror_name?: string
+    mirror_id?: string
+    mirror_index?: number
+    total_mirrors?: number
+    elapsed_ms?: number
+    url?: string
+    error?: string
+  }
+}
+
+export interface PluginMirror {
+  id: string
+  name: string
+  raw_prefix: string
+  clone_prefix: string
+  enabled: boolean
+  priority: number
+}
+
+export interface PluginMirrorsResponse {
+  ok: boolean
+  error?: string
+  mirrors: PluginMirror[]
+}
+
+export interface PluginMirrorTestResult {
+  ok: boolean
+  error?: string
+  mirror_id?: string
+  mirror_name?: string
+  mirror_index?: number
+  total_mirrors?: number
+  elapsed_ms?: number
+  status?: number
+  url?: string
+}
+
+export interface PluginMirrorTestResponse {
+  ok: boolean
+  error?: string
+  results: PluginMirrorTestResult[]
 }
 
 export interface SecretField {

@@ -51,9 +51,10 @@ async def check_updates(api: "WebAPI", include_prerelease: bool = False) -> dict
             "update_available": False,
         }
 
+    check_source: dict[str, Any] = {"mode": "github-api", "mirror_name": "GitHub API"}
     try:
         proxy_url = str(getattr(getattr(api, "_llm_client", None), "proxy_url", "") or "")
-        release = await _fetch_release(repo, include_prerelease, proxy_url)
+        release, check_source = await _fetch_release_for_api(api, repo, include_prerelease, proxy_url)
     except NoReleaseError as exc:
         return {
             "ok": True,
@@ -65,6 +66,7 @@ async def check_updates(api: "WebAPI", include_prerelease: bool = False) -> dict
             "releases_url": f"https://github.com/{repo}/releases",
             "source_url": f"https://github.com/{repo}",
             "install_hint": _install_hint(repo),
+            "check_source": check_source,
         }
     except Exception as exc:
         logger.warning("检查更新失败: %s", exc)
@@ -106,6 +108,7 @@ async def check_updates(api: "WebAPI", include_prerelease: bool = False) -> dict
         "releases_url": f"https://github.com/{repo}/releases",
         "source_url": f"https://github.com/{repo}",
         "install_hint": _install_hint(repo),
+        "check_source": check_source,
     }
 
 
@@ -135,6 +138,50 @@ async def _fetch_release(repo: str, include_prerelease: bool, proxy_url: str = "
             for release in data:
                 if isinstance(release, dict) and not release.get("draft"):
                     return release
+    raise RuntimeError("没有可用的 Release")
+
+
+async def _fetch_release_for_api(
+    api: "WebAPI",
+    repo: str,
+    include_prerelease: bool,
+    proxy_url: str = "",
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    plugin_host = getattr(api, "_plugins", None)
+    mirrors = getattr(plugin_host, "mirrors", None)
+    api_path = f"/repos/{repo}/releases"
+    if not include_prerelease:
+        api_path += "/latest"
+    if mirrors is not None:
+        result = await mirrors.fetch_github_api(api_path, official_first=True)
+        if result.ok and isinstance(result.data, str):
+            try:
+                data = await _parse_release_payload(result.data, include_prerelease)
+                source = result.to_dict()
+                source.pop("data", None)
+                return data, {"mode": "mirror", **source}
+            except Exception as exc:
+                logger.warning("镜像源返回的 Release 数据无法解析，回退 GitHub API：%s", exc)
+        logger.warning("通过镜像源检查更新失败，回退 GitHub API：%s", result.error)
+    release = await _fetch_release(repo, include_prerelease, proxy_url)
+    return release, {"mode": "github-api", "mirror_name": "GitHub API"}
+
+
+async def _parse_release_payload(payload: str, include_prerelease: bool) -> dict[str, Any]:
+    import json
+
+    data = json.loads(payload)
+    if isinstance(data, dict) and data.get("message") == "Not Found":
+        raise NoReleaseError("暂无公开 Release")
+    if not include_prerelease:
+        if not isinstance(data, dict):
+            raise RuntimeError("GitHub Release 返回格式异常")
+        return data
+    if not isinstance(data, list):
+        raise RuntimeError("GitHub Release 返回格式异常")
+    for release in data:
+        if isinstance(release, dict) and not release.get("draft"):
+            return release
     raise RuntimeError("没有可用的 Release")
 
 

@@ -3,16 +3,23 @@
 from __future__ import annotations
 
 import asyncio
+import io
 import json
 import logging
 import os
 import re
 import secrets
+import shutil
 import subprocess
 import sys
+import tempfile
+import zipfile
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
+
+from .marketplace import PluginMarketplace
+from .mirrors import MirrorManager
 
 _ID_RE = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
 _ALLOWED_CONTROLS = {"switch", "text", "secret", "number", "select", "string-list"}
@@ -38,6 +45,8 @@ class PluginHost:
         self.base_env = base_env or {}
         self.plugins: dict[str, PluginRuntime] = {}
         self.logger = logging.getLogger("trpg.plugins")
+        self.mirrors = MirrorManager(self.data_dir / "_marketplace" / "mirrors.json")
+        self.marketplace = PluginMarketplace(self.mirrors)
 
     def discover(self) -> list[dict[str, Any]]:
         self.plugins.clear()
@@ -45,19 +54,8 @@ class PluginHost:
             return []
         for manifest_path in sorted(self.plugins_dir.glob("*/plugin.json")):
             try:
-                manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-                plugin_id = str(manifest.get("id") or "")
-                if not _ID_RE.fullmatch(plugin_id) or manifest_path.parent.name != plugin_id:
-                    raise ValueError("插件 ID 非法或与目录名不一致")
-                if int(manifest.get("schema_version", 0)) != 1:
-                    raise ValueError("不支持的 manifest schema_version")
-                schema_path = (manifest_path.parent / str(manifest.get("config_schema") or "config.schema.json")).resolve()
-                if manifest_path.parent.resolve() not in schema_path.parents:
-                    raise ValueError("配置 Schema 路径越界")
-                schema = json.loads(schema_path.read_text(encoding="utf-8"))
-                self._validate_schema(schema)
-                runtime = PluginRuntime(manifest, schema, manifest_path.parent)
-                runtime.config, runtime.secrets = self._load_config(plugin_id, schema)
+                plugin_id, runtime = self._load_runtime(manifest_path.parent)
+                runtime.config, runtime.secrets = self._load_config(plugin_id, runtime.schema)
                 runtime.status = "disabled" if not runtime.config.get("enabled") else "stopped"
                 self.plugins[plugin_id] = runtime
             except Exception as exc:
@@ -94,7 +92,104 @@ class PluginHost:
             "error": runtime.error,
             "schema": runtime.schema,
             "config": public_config,
+            "capabilities": runtime.manifest.get("capabilities", []),
+            "docs": runtime.manifest.get("docs", ""),
         }
+
+    async def install_from_zip(self, payload: bytes, *, overwrite: bool = False, allow_any_root: bool = False) -> dict[str, Any]:
+        if not payload:
+            raise ValueError("插件包为空")
+        self.plugins_dir.mkdir(parents=True, exist_ok=True)
+        self.data_dir.mkdir(parents=True, exist_ok=True)
+        with tempfile.TemporaryDirectory(prefix="plugin-install-", dir=str(self.data_dir)) as temp_name:
+            temp_dir = Path(temp_name)
+            self._extract_zip(payload, temp_dir)
+            source_dir = self._find_install_root(temp_dir)
+            plugin_id, _runtime = self._load_runtime(source_dir, require_directory_match=False)
+            if not allow_any_root and source_dir != temp_dir and source_dir.name != plugin_id:
+                raise ValueError("插件包顶层目录名必须与插件 ID 一致")
+            target_dir = (self.plugins_dir / plugin_id).resolve()
+            self._ensure_inside(self.plugins_dir, target_dir)
+            if target_dir.exists() and not overwrite:
+                raise ValueError(f"插件 {plugin_id} 已存在；如需更新请启用覆盖安装")
+
+            staging_dir = (self.plugins_dir / f".{plugin_id}.installing-{secrets.token_hex(6)}").resolve()
+            backup_dir = (self.plugins_dir / f".{plugin_id}.backup-{secrets.token_hex(6)}").resolve()
+            self._ensure_inside(self.plugins_dir, staging_dir)
+            self._ensure_inside(self.plugins_dir, backup_dir)
+            shutil.copytree(source_dir, staging_dir)
+            try:
+                if target_dir.exists():
+                    if plugin_id in self.plugins:
+                        await self.stop(plugin_id)
+                    target_dir.rename(backup_dir)
+                staging_dir.rename(target_dir)
+                if backup_dir.exists():
+                    shutil.rmtree(backup_dir)
+            except Exception:
+                if target_dir.exists() and not (target_dir / "plugin.json").exists():
+                    shutil.rmtree(target_dir, ignore_errors=True)
+                if backup_dir.exists() and not target_dir.exists():
+                    backup_dir.rename(target_dir)
+                if staging_dir.exists():
+                    shutil.rmtree(staging_dir, ignore_errors=True)
+                raise
+
+        self.discover()
+        return self.public_detail(plugin_id)
+
+    async def marketplace_plugins(self) -> dict[str, Any]:
+        listing = await self.marketplace.list_plugins()
+        if listing.get("ok"):
+            installed = set(self.plugins)
+            for item in listing.get("plugins", []):
+                item["installed"] = item.get("id") in installed
+                if item["installed"]:
+                    current = self.plugins[item["id"]].manifest
+                    item["installed_version"] = current.get("version", "")
+        return listing
+
+    async def install_from_marketplace(self, plugin_id: str, *, overwrite: bool = False) -> dict[str, Any]:
+        package = await self.marketplace.package_for_plugin(plugin_id)
+        if not package.get("ok"):
+            raise ValueError(str(package.get("error") or "插件市场安装失败"))
+        detail = await self.install_from_zip(package["payload"], overwrite=overwrite, allow_any_root=True)
+        return {"source": package.get("source", {}), "marketplace": package.get("plugin", {}), **detail}
+
+    async def update_from_marketplace(self, plugin_id: str) -> dict[str, Any]:
+        if plugin_id not in self.plugins:
+            raise KeyError(f"插件不存在：{plugin_id}")
+        return await self.install_from_marketplace(plugin_id, overwrite=True)
+
+    def list_mirrors(self) -> dict[str, Any]:
+        return {"mirrors": self.mirrors.list()}
+
+    def add_mirror(self, data: dict[str, Any]) -> dict[str, Any]:
+        return self.mirrors.add(data)
+
+    def update_mirror(self, mirror_id: str, patch: dict[str, Any]) -> dict[str, Any]:
+        return self.mirrors.update(mirror_id, patch)
+
+    def delete_mirror(self, mirror_id: str) -> dict[str, Any]:
+        return self.mirrors.delete(mirror_id)
+
+    async def test_mirror(self, mirror_id: str = "") -> dict[str, Any]:
+        return await self.mirrors.test(mirror_id)
+
+    async def uninstall(self, plugin_id: str, *, delete_data: bool = False) -> dict[str, Any]:
+        runtime = self._require(plugin_id)
+        await self.stop(plugin_id)
+        plugin_dir = runtime.directory.resolve()
+        self._ensure_inside(self.plugins_dir, plugin_dir)
+        if plugin_dir.exists():
+            shutil.rmtree(plugin_dir)
+        if delete_data:
+            data_dir = (self.data_dir / plugin_id).resolve()
+            self._ensure_inside(self.data_dir, data_dir)
+            if data_dir.exists():
+                shutil.rmtree(data_dir)
+        self.plugins.pop(plugin_id, None)
+        return {"id": plugin_id, "uninstalled": True, "data_deleted": bool(delete_data)}
 
     async def start_enabled(self) -> None:
         for plugin_id, runtime in self.plugins.items():
@@ -253,6 +348,61 @@ class PluginHost:
         self._atomic_json(folder / "config.json", runtime.config)
         self._atomic_json(folder / "secrets.json", runtime.secrets)
 
+    def _load_runtime(self, plugin_dir: Path, *, require_directory_match: bool = True) -> tuple[str, PluginRuntime]:
+        plugin_dir = plugin_dir.resolve()
+        manifest_path = plugin_dir / "plugin.json"
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        plugin_id = str(manifest.get("id") or "")
+        if not _ID_RE.fullmatch(plugin_id):
+            raise ValueError("插件 ID 非法")
+        if require_directory_match and plugin_dir.name != plugin_id:
+            raise ValueError("插件 ID 与目录名不一致")
+        if int(manifest.get("schema_version", 0)) != 1:
+            raise ValueError("不支持的 manifest schema_version")
+        schema_path = (plugin_dir / str(manifest.get("config_schema") or "config.schema.json")).resolve()
+        self._ensure_inside(plugin_dir, schema_path)
+        schema = json.loads(schema_path.read_text(encoding="utf-8"))
+        self._validate_schema(schema)
+        self._validate_entrypoint(manifest)
+        return plugin_id, PluginRuntime(manifest, schema, plugin_dir)
+
+    @staticmethod
+    def _extract_zip(payload: bytes, target_dir: Path) -> None:
+        try:
+            archive = zipfile.ZipFile(io.BytesIO(payload))
+        except zipfile.BadZipFile as exc:
+            raise ValueError("插件包不是有效 zip 文件") from exc
+        with archive:
+            for info in archive.infolist():
+                name = info.filename
+                parts = Path(name).parts
+                if not name or Path(name).is_absolute() or any(part == ".." for part in parts):
+                    raise ValueError("插件包包含非法路径")
+                file_type = (info.external_attr >> 16) & 0o170000
+                if file_type == 0o120000:
+                    raise ValueError("插件包不能包含符号链接")
+                resolved = (target_dir / name).resolve()
+                PluginHost._ensure_inside(target_dir, resolved)
+            archive.extractall(target_dir)
+
+    @staticmethod
+    def _find_install_root(temp_dir: Path) -> Path:
+        if (temp_dir / "plugin.json").exists():
+            return temp_dir
+        candidates = [path.parent for path in temp_dir.glob("*/plugin.json")]
+        if not candidates:
+            raise ValueError("插件包缺少 plugin.json")
+        if len(candidates) > 1:
+            raise ValueError("插件包包含多个 plugin.json，请只打包一个插件")
+        return candidates[0]
+
+    @staticmethod
+    def _ensure_inside(root: Path, target: Path) -> None:
+        root = root.resolve()
+        target = target.resolve()
+        if target != root and root not in target.parents:
+            raise ValueError("路径越界")
+
     @staticmethod
     def _atomic_json(path: Path, value: dict[str, Any]) -> None:
         temp = path.with_suffix(path.suffix + ".tmp")
@@ -267,6 +417,12 @@ class PluginHost:
             control = (field_schema.get("ui") or {}).get("control")
             if control and control not in _ALLOWED_CONTROLS:
                 raise ValueError(f"字段 {key} 使用不支持的控件 {control}")
+
+    @staticmethod
+    def _validate_entrypoint(manifest: dict[str, Any]) -> None:
+        command = manifest.get("entrypoint")
+        if not isinstance(command, list) or not command or not all(isinstance(item, str) for item in command):
+            raise ValueError("entrypoint 必须是非空字符串数组")
 
     @staticmethod
     def _sensitive(field_schema: dict[str, Any]) -> bool:

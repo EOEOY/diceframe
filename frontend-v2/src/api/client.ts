@@ -45,7 +45,8 @@ async function handleUnauthorized(response: Response): Promise<void> {
 }
 
 export async function api<T = unknown>(path: string, init: RequestInit = {}): Promise<T> {
-  const headers = authHeaders(init.headers)
+  const isFormData = init.body instanceof FormData
+  const headers = authHeaders(init.headers, !isFormData)
   applyConfirmHeader(headers, init)
   const response = await fetch(apiUrl(path), { ...init, headers })
   const data = await response.json().catch(() => ({}))
