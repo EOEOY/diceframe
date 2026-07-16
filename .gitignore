@@ -34,6 +34,7 @@ dist/
 
 # 临时审计数据
 .tmp_audit_data/
+.codex_tmp/
 
 # Claude Code 本地设置
 .claude/

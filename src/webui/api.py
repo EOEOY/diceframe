@@ -64,6 +64,36 @@ class WebAPI:
     async def control_plugin(self, plugin_id: str, action: str) -> dict[str, Any]:
         return await plugins.control_plugin(self, plugin_id, action)
 
+    async def install_plugin(self, payload: bytes, overwrite: bool = False) -> dict[str, Any]:
+        return await plugins.install_plugin(self, payload, overwrite)
+
+    async def list_plugin_marketplace(self) -> dict[str, Any]:
+        return await plugins.list_plugin_marketplace(self)
+
+    async def install_marketplace_plugin(self, plugin_id: str, overwrite: bool = False) -> dict[str, Any]:
+        return await plugins.install_marketplace_plugin(self, plugin_id, overwrite)
+
+    async def update_marketplace_plugin(self, plugin_id: str) -> dict[str, Any]:
+        return await plugins.update_marketplace_plugin(self, plugin_id)
+
+    async def uninstall_plugin(self, plugin_id: str, delete_data: bool = False) -> dict[str, Any]:
+        return await plugins.uninstall_plugin(self, plugin_id, delete_data)
+
+    def list_plugin_mirrors(self) -> dict[str, Any]:
+        return plugins.list_plugin_mirrors(self)
+
+    def add_plugin_mirror(self, data: dict[str, Any]) -> dict[str, Any]:
+        return plugins.add_plugin_mirror(self, data)
+
+    def update_plugin_mirror(self, mirror_id: str, data: dict[str, Any]) -> dict[str, Any]:
+        return plugins.update_plugin_mirror(self, mirror_id, data)
+
+    def delete_plugin_mirror(self, mirror_id: str) -> dict[str, Any]:
+        return plugins.delete_plugin_mirror(self, mirror_id)
+
+    async def test_plugin_mirror(self, mirror_id: str = "") -> dict[str, Any]:
+        return await plugins.test_plugin_mirror(self, mirror_id)
+
     def clear_plugin_card_cache(self, plugin_id: str) -> dict[str, Any]:
         return plugins.clear_plugin_card_cache(self, plugin_id)
 
