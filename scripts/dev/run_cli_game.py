@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""TRPG 独立运行器 —— 不依赖 MaiBot，命令行直接跑团测试。"""
+"""DiceFrame 命令行跑团调试入口。"""
 
 from __future__ import annotations
 
@@ -10,8 +10,8 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
-# 确保当前目录在路径中
-sys.path.insert(0, str(Path(__file__).parent))
+ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT))
 
 from src.engine.game_instance import GameRegistry, GameState
 from src.llm.client import LLMClient, ProviderConfig
@@ -25,7 +25,7 @@ from src.commands.game_handler import GameHandler
 API_KEY = os.getenv("TRPG_LLM_API_KEY", os.getenv("TRPG_API_KEY", ""))
 BASE_URL = os.getenv("TRPG_LLM_BASE_URL", os.getenv("TRPG_BASE_URL", "https://api.deepseek.com/v1"))
 MODEL = os.getenv("TRPG_LLM_MODEL", os.getenv("TRPG_MODEL", "deepseek-v4-pro"))
-DATA_DIR = Path(os.getenv("TRPG_DATA_DIR", str(Path(__file__).parent / "data")))
+DATA_DIR = Path(os.getenv("TRPG_DATA_DIR", str(ROOT / "data")))
 
 # 颜色输出
 GREEN = "\033[92m"
@@ -79,8 +79,8 @@ async def main() -> None:
     if recovered:
         print_info(f"恢复了 {len(recovered)} 个未完成对局")
 
-    prompts_dir = Path(__file__).parent / "prompts"
-    rules_dir = Path(__file__).parent / "templates" / "rules"
+    prompts_dir = ROOT / "prompts"
+    rules_dir = ROOT / "templates" / "rules"
 
     handler = GameHandler(
         registry=registry, llm_client=llm_client,
@@ -88,7 +88,7 @@ async def main() -> None:
         lorebook_store=lorebook_store,
         memory_store=memory_store,
         prompts_dir=prompts_dir, rules_dir=rules_dir,
-        worlds_dir=Path(__file__).parent / "templates" / "worlds",
+        worlds_dir=ROOT / "templates" / "worlds",
     )
 
     # 创建测试对局

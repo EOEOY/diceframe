@@ -1,0 +1,12 @@
+{
+  "type": "object",
+  "properties": {
+    "enabled": {
+      "type": "boolean",
+      "title": "Enable theme",
+      "description": "When enabled, this theme appears in the plugin theme selector.",
+      "default": false,
+      "ui": {"control": "switch", "order": 10}
+    }
+  }
+}

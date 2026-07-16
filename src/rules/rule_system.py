@@ -439,6 +439,11 @@ class RuleSystem:
         Returns:
             RuleSystem 或 None（未找到规则文件时）
         """
+        plugin_rule_path = world_data.get("_diceframe_rule_path")
+        if plugin_rule_path:
+            path = Path(plugin_rule_path)
+            if path.exists():
+                return cls.load(path)
         rule_id = world_data.get("default_rule", "freeform_fantasy")
         rule_path = rules_dir / f"{rule_id}.json"
         if rule_path.exists():

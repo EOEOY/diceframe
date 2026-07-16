@@ -41,6 +41,12 @@ def _enrich_attributes(attributes: list[dict]) -> list[dict]:
 def list_rules(api: "WebAPI") -> dict[str, Any]:
     from src.rules.rule_system import list_available_rules
     rules = list_available_rules(api._rules_dir)
+    seen = {str(rule.get("rule_id") or "") for rule in rules}
+    for item in _plugin_rule_items(api):
+        rule_id = str(item.get("rule_id") or "")
+        if rule_id and rule_id not in seen:
+            rules.append(item)
+            seen.add(rule_id)
     return {"rules": rules, "total": len(rules)}
 
 
@@ -59,9 +65,9 @@ def save_custom_rule(api: "WebAPI", data: dict[str, Any]) -> dict[str, Any]:
     if not rule_name:
         return {"ok": False, "error": "请输入规则名称"}
 
-    source_path = api._rules_dir / f"{source_rule_id}.json"
+    source_path = _resolve_rule_path(api, source_rule_id)
     target_path = api._rules_dir / f"{rule_id}.json"
-    if not source_path.exists():
+    if not source_path or not source_path.exists():
         return {"ok": False, "error": f"基础规则不存在: {source_rule_id}"}
     if target_path.exists():
         return {"ok": False, "error": f"规则 ID 已存在: {rule_id}"}
@@ -94,8 +100,8 @@ def get_rule_template(api: "WebAPI", rule_id: str) -> dict[str, Any]:
     rule_id = (rule_id or "").strip()
     if not _RULE_ID_RE.fullmatch(rule_id):
         return {"ok": False, "error": "规则 ID 不合法"}
-    rule_path = RuleSystem.path_for(api._rules_dir, rule_id)
-    if not rule_path.exists():
+    rule_path = _resolve_rule_path(api, rule_id)
+    if not rule_path or not rule_path.exists():
         return {"ok": False, "error": f"规则不存在: {rule_id}"}
     template = json.loads(rule_path.read_text(encoding="utf-8"))
     rule = RuleSystem.load(rule_path)
@@ -106,6 +112,9 @@ def get_rule_template(api: "WebAPI", rule_id: str) -> dict[str, Any]:
     template.setdefault("progression_schema", rule.progression_schema)
     template.setdefault("ui_schema", rule.ui_schema)
     template["attributes"] = _enrich_attributes(template.get("attributes", []))
+    if _plugin_rule_path(api, rule_id):
+        template["plugin_id"] = _plugin_rule_plugin_id(api, rule_id)
+        template["readonly"] = True
     return {"ok": True, "rule": template}
 
 
@@ -159,3 +168,51 @@ def delete_custom_rule(api: "WebAPI", rule_id: str) -> dict[str, Any]:
     rule_path.unlink()
     logger.info("自定义规则已删除: %s", rule_id)
     return {"ok": True, "rule_id": rule_id}
+
+
+def _resolve_rule_path(api: "WebAPI", rule_id: str):
+    rule_path = RuleSystem.path_for(api._rules_dir, rule_id)
+    if rule_path.exists():
+        return rule_path
+    return _plugin_rule_path(api, rule_id)
+
+
+def _plugin_rule_path(api: "WebAPI", rule_id: str):
+    plugin_host = getattr(api, "_plugins", None)
+    if not plugin_host:
+        return None
+    return plugin_host.contribution_path("rule", rule_id)
+
+
+def _plugin_rule_plugin_id(api: "WebAPI", rule_id: str) -> str:
+    plugin_host = getattr(api, "_plugins", None)
+    if not plugin_host:
+        return ""
+    item = plugin_host.contributions.find("rule", rule_id)
+    return item.plugin_id if item else ""
+
+
+def _plugin_rule_items(api: "WebAPI") -> list[dict[str, Any]]:
+    plugin_host = getattr(api, "_plugins", None)
+    if not plugin_host:
+        return []
+    result = []
+    for item in plugin_host.contributions.list("rule"):
+        try:
+            rule = RuleSystem.load(item.path)
+            result.append({
+                "rule_id": rule.rule_id,
+                "rule_name": rule.rule_name,
+                "description": rule.template.get("description", ""),
+                "dice_system": rule.dice_system,
+                "combat_model": rule.combat_model,
+                "attr_count": len(rule.attributes),
+                "custom": False,
+                "plugin_id": item.plugin_id,
+                "plugin_name": item.plugin_name,
+                "readonly": True,
+                "file": str(item.path),
+            })
+        except Exception:
+            logger.warning("插件规则模板读取失败: %s", item.path, exc_info=True)
+    return result

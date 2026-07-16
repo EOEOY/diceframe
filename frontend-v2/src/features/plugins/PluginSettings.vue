@@ -9,18 +9,23 @@ import {
   ExtensionPuzzleOutline, RefreshOutline, TrashOutline,
 } from '@vicons/ionicons5'
 import { api, errorMessage } from '@/api/client'
+import { useTheme } from '@/composables/useTheme'
 import { useToast } from '@/composables/useToast'
 import type {
+  PluginContentImportResponse, PluginContentResource, PluginContentResponse,
   PluginField, PluginInfo, PluginMarketplaceItem, PluginMarketplaceResponse,
-  PluginMirror, PluginMirrorsResponse, PluginMirrorTestResponse,
+  PluginMirror, PluginMirrorsResponse, PluginMirrorTestResponse, WorldListResponse,
 } from '@/api/types'
 import NapcatGuide from '@/components/plugins/NapcatGuide.vue'
 
 const toast = useToast()
+const { pluginThemes, pluginThemeId, loadPluginThemes, applyPluginTheme, clearPluginTheme } = useTheme()
 const plugins = ref<PluginInfo[]>([])
+const contentResources = ref<Record<string, PluginContentResource[]>>({})
 const marketplace = ref<PluginMarketplaceItem[]>([])
 const mirrors = ref<PluginMirror[]>([])
 const mirrorTests = ref<Record<string, string>>({})
+const worlds = ref<WorldListResponse['worlds']>([])
 const marketplaceSource = ref<PluginMarketplaceResponse['source'] | null>(null)
 const expandedPluginNames = ref<string[]>([])
 const loading = ref(false)
@@ -30,6 +35,8 @@ const busy = ref('')
 const installFile = ref<File | null>(null)
 const overwriteInstall = ref(false)
 const marketKeyword = ref('')
+const contentLoading = ref(false)
+const contentTargetWorldId = ref('')
 const newMirror = reactive<PluginMirror>({
   id: '',
   name: '',
@@ -38,6 +45,24 @@ const newMirror = reactive<PluginMirror>({
   enabled: true,
   priority: 1,
 })
+const themeOptions = computed(() => pluginThemes.value.map(theme => ({
+  label: `${theme.name}${theme.plugin_name ? ` · ${theme.plugin_name}` : ''}`,
+  value: theme.id,
+})))
+const contentGroups = computed(() => [
+  { key: 'character_template', label: '角色模板' },
+  { key: 'npc', label: 'NPC' },
+  { key: 'item', label: '道具' },
+  { key: 'spell', label: '法术' },
+  { key: 'class', label: '职业' },
+].map(group => ({ ...group, items: contentResources.value[group.key] || [] })))
+const worldOptions = computed(() => (worlds.value || []).map(world => {
+  const id = String(world.id || world.world_id || '')
+  return {
+    label: String(world.name || world.world_name || id),
+    value: id,
+  }
+}).filter(item => item.value))
 
 const filteredMarketplace = computed(() => {
   const keyword = marketKeyword.value.trim().toLowerCase()
@@ -53,6 +78,7 @@ async function load() {
     const r = await api<{ plugins: PluginInfo[] }>('/plugins')
     plugins.value = r.plugins || []
     if (!expandedPluginNames.value.length) expandedPluginNames.value = plugins.value.map(p => p.id)
+    await loadPluginThemes()
   } catch (e: unknown) {
     toast.error(errorMessage(e))
   } finally {
@@ -83,6 +109,31 @@ async function loadMirrors() {
     toast.error(errorMessage(e))
   } finally {
     mirrorLoading.value = false
+  }
+}
+
+async function loadContentResources() {
+  contentLoading.value = true
+  try {
+    const r = await api<PluginContentResponse>('/plugins/content')
+    if (!r.ok) throw new Error(r.error || '内容包读取失败')
+    contentResources.value = r.resources || {}
+  } catch (e: unknown) {
+    toast.error(errorMessage(e))
+  } finally {
+    contentLoading.value = false
+  }
+}
+
+async function loadWorlds() {
+  try {
+    const r = await api<WorldListResponse>('/worlds')
+    worlds.value = r.worlds || []
+    if (!contentTargetWorldId.value && worldOptions.value.length) {
+      contentTargetWorldId.value = String(worldOptions.value[0].value)
+    }
+  } catch (e: unknown) {
+    toast.error(errorMessage(e))
   }
 }
 
@@ -222,6 +273,8 @@ async function installPlugin() {
     overwriteInstall.value = false
     await load()
     await loadMarketplace()
+    await loadPluginThemes()
+    await loadContentResources()
   } catch (e: unknown) {
     toast.error(errorMessage(e))
   } finally {
@@ -238,6 +291,8 @@ async function installMarketPlugin(item: PluginMarketplaceItem) {
     toast.success(`${item.name} 已${item.installed ? '更新' : '安装'}`)
     await load()
     await loadMarketplace()
+    await loadPluginThemes()
+    await loadContentResources()
   } catch (e: unknown) {
     toast.error(errorMessage(e))
   } finally {
@@ -251,6 +306,8 @@ async function updateInstalledPlugin(p: PluginInfo) {
     toast.success(`${p.name} 已更新`)
     await load()
     await loadMarketplace()
+    await loadPluginThemes()
+    await loadContentResources()
   } catch (e: unknown) {
     toast.error(errorMessage(e))
   } finally {
@@ -266,6 +323,8 @@ async function uninstallPlugin(p: PluginInfo) {
     toast.success(`${p.name} 已卸载`)
     await load()
     await loadMarketplace()
+    await loadPluginThemes()
+    await loadContentResources()
   } catch (e: unknown) {
     toast.error(errorMessage(e))
   } finally {
@@ -333,10 +392,64 @@ async function testMirror(mirror?: PluginMirror) {
 function openUrl(url?: string) {
   if (url) window.open(url, '_blank', 'noopener')
 }
+function pluginTypeLabel(type?: string): string {
+  const labels: Record<string, string> = {
+    'channel-adapter': '聊天桥接',
+    'content-pack': '内容包',
+    'theme': '主题',
+    'map-pack': '地图包',
+    'import-export': '导入导出',
+    'provider': '服务提供器',
+    'tool': '工具',
+  }
+  return labels[type || ''] || type || '未分类'
+}
+function permissionDescription(p: PluginInfo, permission: string): string {
+  return p.permission_details?.find(item => item.id === permission)?.description || permission
+}
+
+function selectedThemeDescription(): string {
+  const theme = pluginThemes.value.find(item => item.id === pluginThemeId.value)
+  return theme?.description || ''
+}
+function selectPluginTheme(value: string | null) {
+  applyPluginTheme(value)
+}
+function contentTitle(item: PluginContentResource): string {
+  return String(item.character_name || item.name || item.id || '未命名')
+}
+function contentSubtitle(item: PluginContentResource): string {
+  return [item.plugin_name || item.plugin_id || '', item.description || ''].filter(Boolean).join(' · ')
+}
+async function importContent(kind: string, item: PluginContentResource) {
+  if (kind !== 'character_template' && !contentTargetWorldId.value) {
+    toast.error('请选择要导入到的世界书')
+    return
+  }
+  const key = `${kind}:${item.plugin_id}:${item.id || item.name || item.character_name}`
+  busy.value = key
+  try {
+    const r = await api<PluginContentImportResponse>('/plugins/content/import', {
+      method: 'POST',
+      body: JSON.stringify({
+        kind,
+        id: item.id,
+        plugin_id: item.plugin_id,
+        target_world_id: kind === 'character_template' ? '' : contentTargetWorldId.value,
+      }),
+    })
+    if (!r.ok) throw new Error(r.error || '导入失败')
+    toast.success(kind === 'character_template' ? '已导入角色卡库' : '已导入世界书')
+  } catch (e: unknown) {
+    toast.error(errorMessage(e))
+  } finally {
+    busy.value = ''
+  }
+}
 
 onMounted(async () => {
   await load()
-  await Promise.all([loadMarketplace(), loadMirrors()])
+  await Promise.all([loadMarketplace(), loadMirrors(), loadContentResources(), loadWorlds()])
 })
 </script>
 
@@ -371,13 +484,23 @@ onMounted(async () => {
             </template>
             <template #header-extra>
               <div class="plugin-extra" @click.stop>
+                <NTag size="small">{{ pluginTypeLabel(p.plugin_type) }}</NTag>
                 <NTag :type="p.running ? 'success' : 'default'" size="small">{{ p.status }}</NTag>
-                <NSwitch :value="p.running" :disabled="busy === p.id" @update:value="toggleRunning(p, $event)" />
+                <NSwitch v-if="p.has_entrypoint" :value="p.running" :disabled="busy === p.id" @update:value="toggleRunning(p, $event)" />
               </div>
             </template>
 
             <NTabs type="line" animated class="plugin-tabs">
               <NTabPane name="config" tab="配置">
+                <section v-if="p.permissions?.length" class="permission-panel">
+                  <h4>权限</h4>
+                  <div class="permission-list">
+                    <NTag v-for="permission in p.permissions" :key="permission" size="small">
+                      {{ permission }}
+                    </NTag>
+                  </div>
+                  <p class="muted">{{ p.permissions.map(permission => permissionDescription(p, permission)).join('；') }}</p>
+                </section>
                 <div class="plugin-form-grid">
                   <template v-for="(entry, i) in ordered(p)" :key="entry[0]">
                     <h4 v-if="showGroup(ordered(p), i)" class="field-group">{{ entry[1].ui?.group }}</h4>
@@ -434,7 +557,7 @@ onMounted(async () => {
 
             <div class="actions-row">
               <NButton type="primary" :loading="busy === p.id" @click="save(p)">保存配置</NButton>
-              <NButton :loading="busy === p.id" @click="restart(p)">
+              <NButton v-if="p.has_entrypoint" :loading="busy === p.id" @click="restart(p)">
                 <template #icon><NIcon :component="RefreshOutline" /></template>
                 重启插件
               </NButton>
@@ -448,7 +571,8 @@ onMounted(async () => {
                 卸载插件
               </NButton>
             </div>
-            <p class="muted hint">修改令牌 / 连接参数后，需重启插件才会生效。</p>
+            <p v-if="p.has_entrypoint" class="muted hint">修改令牌 / 连接参数后，需重启插件才会生效。</p>
+            <p v-else class="muted hint">声明型插件不启动后台进程；保存配置后立即记录到插件数据目录。</p>
           </NCollapseItem>
         </NCollapse>
       </NSpin>
@@ -477,9 +601,13 @@ onMounted(async () => {
             </div>
             <p class="market-desc">{{ item.description || '暂无介绍' }}</p>
             <div class="tag-row">
+              <NTag v-if="item.plugin_type" size="small">{{ pluginTypeLabel(item.plugin_type) }}</NTag>
               <NTag v-if="item.installed" type="success" size="small">已安装 {{ item.installed_version }}</NTag>
               <NTag v-for="tag in item.tags || []" :key="tag" size="small">{{ tag }}</NTag>
             </div>
+            <p v-if="item.permissions?.length" class="muted market-permissions">
+              权限：{{ item.permissions.slice(0, 4).join('、') }}{{ item.permissions.length > 4 ? ' 等' : '' }}
+            </p>
             <div class="market-actions">
               <NButton type="primary" :loading="busy === `market:${item.id}`" @click="installMarketPlugin(item)">
                 <template #icon><NIcon :component="CloudDownloadOutline" /></template>
@@ -492,6 +620,68 @@ onMounted(async () => {
           </article>
         </div>
         <p v-if="!filteredMarketplace.length" class="muted">插件商店暂无匹配项目。</p>
+      </NSpin>
+    </NTabPane>
+
+    <NTabPane name="themes" tab="主题">
+      <section class="theme-plugin-panel">
+        <div>
+          <h3>插件主题</h3>
+          <p class="muted">主题插件会覆盖 DiceFrame 的 CSS 变量；选择只保存在当前浏览器。</p>
+        </div>
+        <div class="theme-plugin-controls">
+          <NSelect
+            :value="pluginThemeId || null"
+            :options="themeOptions"
+            placeholder="选择已启用的主题插件"
+            clearable
+            @update:value="selectPluginTheme"
+          />
+          <NButton :disabled="!pluginThemeId" @click="clearPluginTheme">清除</NButton>
+          <NButton @click="loadPluginThemes">刷新</NButton>
+        </div>
+        <p v-if="selectedThemeDescription()" class="muted">{{ selectedThemeDescription() }}</p>
+        <p v-if="!pluginThemes.length" class="muted">暂无已启用的主题插件。</p>
+      </section>
+    </NTabPane>
+
+    <NTabPane name="content" tab="内容包">
+      <section class="toolbar-row">
+        <NSelect
+          v-model:value="contentTargetWorldId"
+          :options="worldOptions"
+          placeholder="选择世界书"
+          class="content-world-select"
+        />
+        <NButton :loading="contentLoading" @click="loadContentResources">
+          <template #icon><NIcon :component="RefreshOutline" /></template>
+          刷新
+        </NButton>
+      </section>
+      <NSpin :show="contentLoading">
+        <div class="content-catalog">
+          <section v-for="group in contentGroups" :key="group.key" class="content-group">
+            <h3>{{ group.label }} <span class="muted">{{ group.items.length }}</span></h3>
+            <div v-if="group.items.length" class="content-list">
+              <article v-for="item in group.items" :key="`${group.key}:${item.plugin_id}:${item.id || item.name || item.character_name}`" class="content-item">
+                <div class="content-item-main">
+                  <strong>{{ contentTitle(item) }}</strong>
+                  <p class="muted">{{ contentSubtitle(item) || '暂无说明' }}</p>
+                </div>
+                <NButton
+                  size="small"
+                  secondary
+                  :disabled="group.key !== 'character_template' && !contentTargetWorldId"
+                  :loading="busy === `${group.key}:${item.plugin_id}:${item.id || item.name || item.character_name}`"
+                  @click="importContent(group.key, item)"
+                >
+                  {{ group.key === 'character_template' ? '导入角色卡' : '导入世界书' }}
+                </NButton>
+              </article>
+            </div>
+            <p v-else class="muted">暂无。</p>
+          </section>
+        </div>
       </NSpin>
     </NTabPane>
 
@@ -509,8 +699,8 @@ onMounted(async () => {
       <div class="mirror-form">
         <NInput v-model:value="newMirror.id" placeholder="ID，例如 my-mirror" />
         <NInput v-model:value="newMirror.name" placeholder="名称" />
-        <NInput v-model:value="newMirror.raw_prefix" placeholder="Raw 前缀" />
-        <NInput v-model:value="newMirror.clone_prefix" placeholder="GitHub/下载前缀" />
+        <NInput v-model:value="newMirror.raw_prefix" class="mirror-url-input" placeholder="Raw 前缀" />
+        <NInput v-model:value="newMirror.clone_prefix" class="mirror-url-input" placeholder="GitHub/下载前缀" />
         <NInputNumber v-model:value="newMirror.priority" :min="1" placeholder="优先级" />
         <NSwitch v-model:value="newMirror.enabled" />
         <NButton type="primary" :loading="busy === 'mirror:add'" @click="addMirror">
@@ -532,8 +722,8 @@ onMounted(async () => {
               <p class="muted">Raw：{{ mirror.raw_prefix }}</p>
               <div class="mirror-edit-grid">
                 <NInput v-model:value="mirror.name" placeholder="名称" />
-                <NInput v-model:value="mirror.raw_prefix" placeholder="Raw 前缀" />
-                <NInput v-model:value="mirror.clone_prefix" placeholder="下载前缀" />
+                <NInput v-model:value="mirror.raw_prefix" class="mirror-url-input" placeholder="Raw 前缀" />
+                <NInput v-model:value="mirror.clone_prefix" class="mirror-url-input" placeholder="下载前缀" />
                 <NInputNumber v-model:value="mirror.priority" :min="1" />
               </div>
               <p v-if="mirrorTests[mirror.id]" class="mirror-test">{{ mirrorTests[mirror.id] }}</p>
@@ -568,6 +758,7 @@ onMounted(async () => {
 }
 
 .plugin-install,
+.theme-plugin-panel,
 .mirror-form,
 .mirror-row,
 .market-card {
@@ -583,6 +774,81 @@ onMounted(async () => {
   align-items: center;
   margin-bottom: 16px;
   padding: 16px;
+}
+
+.theme-plugin-panel {
+  display: grid;
+  gap: 14px;
+  padding: 16px;
+}
+
+.theme-plugin-panel h3 {
+  margin: 0;
+  color: var(--gold-2);
+}
+
+.theme-plugin-panel p {
+  margin: 4px 0 0;
+}
+
+.theme-plugin-controls {
+  display: grid;
+  grid-template-columns: minmax(260px, 1fr) auto auto;
+  gap: 10px;
+  align-items: center;
+}
+
+.content-catalog {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 12px;
+}
+
+.content-world-select {
+  width: min(360px, 100%);
+}
+
+.content-group {
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid var(--line-soft);
+  border-radius: 8px;
+  background: var(--panel-soft);
+}
+
+.content-group h3 {
+  margin: 0 0 10px;
+  color: var(--gold-2);
+  font-size: 15px;
+}
+
+.content-list {
+  display: grid;
+  gap: 8px;
+}
+
+.content-item {
+  min-width: 0;
+  padding: 9px;
+  border: 1px solid var(--line-soft);
+  border-radius: 6px;
+  background: rgba(255, 255, 255, .03);
+  display: grid;
+  gap: 8px;
+}
+
+.content-item strong,
+.content-item p {
+  overflow-wrap: anywhere;
+}
+
+.content-item-main {
+  min-width: 0;
+}
+
+.content-item p {
+  margin: 4px 0 0;
+  line-height: 1.45;
 }
 
 .plugin-install h3 {
@@ -626,6 +892,33 @@ onMounted(async () => {
 
 .plugin-tabs {
   margin-top: 4px;
+}
+
+.permission-panel {
+  display: grid;
+  gap: 8px;
+  margin-bottom: 14px;
+  padding: 12px;
+  border: 1px solid var(--line-soft);
+  border-radius: 6px;
+  background: var(--panel-soft);
+}
+
+.permission-panel h4 {
+  margin: 0;
+  color: var(--gold-2);
+  font-size: 14px;
+}
+
+.permission-panel p {
+  margin: 0;
+  line-height: 1.55;
+}
+
+.permission-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
 }
 
 .plugin-form-grid {
@@ -719,17 +1012,24 @@ onMounted(async () => {
   line-height: 1.55;
 }
 
+.market-permissions {
+  min-height: 1.5em;
+  margin: -4px 0 10px;
+}
+
 .tag-row {
   margin: 12px 0;
 }
 
 .mirror-form {
   display: grid;
-  grid-template-columns: 140px 160px minmax(220px, 1fr) minmax(220px, 1fr) 110px 60px auto;
+  grid-template-columns: minmax(120px, .7fr) minmax(140px, .8fr) minmax(180px, 1.2fr) minmax(180px, 1.2fr) minmax(96px, .5fr) auto auto;
   gap: 10px;
   align-items: center;
   margin-bottom: 14px;
   padding: 14px;
+  max-width: 100%;
+  overflow: hidden;
 }
 
 .mirror-list {
@@ -738,11 +1038,13 @@ onMounted(async () => {
 }
 
 .mirror-row {
-  display: flex;
-  justify-content: space-between;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
   gap: 14px;
   align-items: flex-start;
   padding: 14px;
+  max-width: 100%;
+  overflow: hidden;
 }
 
 .mirror-main {
@@ -756,9 +1058,10 @@ onMounted(async () => {
 
 .mirror-edit-grid {
   display: grid;
-  grid-template-columns: 160px minmax(220px, 1fr) minmax(220px, 1fr) 100px;
+  grid-template-columns: minmax(120px, .8fr) minmax(160px, 1.2fr) minmax(160px, 1.2fr) minmax(90px, .5fr);
   gap: 8px;
   margin-top: 10px;
+  min-width: 0;
 }
 
 .mirror-test {
@@ -767,21 +1070,48 @@ onMounted(async () => {
 
 .mirror-actions {
   justify-content: flex-end;
+  max-width: 100%;
+}
+
+.mirror-form :deep(.n-input),
+.mirror-form :deep(.n-input-number),
+.mirror-edit-grid :deep(.n-input),
+.mirror-edit-grid :deep(.n-input-number) {
+  min-width: 0;
+  width: 100%;
+}
+
+@media (max-width: 1180px) {
+  .mirror-form {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  }
+
+  .mirror-form .mirror-url-input {
+    grid-column: 1 / -1;
+  }
+
+  .mirror-edit-grid {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  }
+
+  .mirror-row {
+    grid-template-columns: 1fr;
+  }
 }
 
 @media (max-width: 980px) {
-  .mirror-form {
-    grid-template-columns: 1fr;
-  }
-
+  .mirror-form,
   .mirror-edit-grid {
     grid-template-columns: 1fr;
   }
 
-  .mirror-row,
   .plugin-install {
     align-items: stretch;
     flex-direction: column;
+  }
+
+  .theme-plugin-controls {
+    grid-template-columns: 1fr;
   }
 
   .install-controls,

@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "id": "paper-theme",
+  "name": "Paper Theme",
+  "version": "0.1.0",
+  "description": "A minimal theme plugin example that contributes safe CSS variables.",
+  "plugin_type": "theme",
+  "config_schema": "config.schema.json",
+  "capabilities": ["theme.tokens"],
+  "permissions": ["plugin.config", "theme.tokens"],
+  "contributes": {
+    "theme": "theme/theme.json"
+  },
+  "docs": "README_CN.md"
+}

@@ -1,0 +1,7 @@
+{
+  "id": "example_warden",
+  "name": "Valley Warden",
+  "description": "A practical protector trained for road patrol, tracking, and negotiation.",
+  "mechanics": "Suggested skills: Notice, Survival, Persuasion.",
+  "rules": ["example_rule"]
+}

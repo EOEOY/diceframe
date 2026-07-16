@@ -14,7 +14,7 @@ from src.engine.game_instance import GameRegistry
 from src.lorebook.store import LorebookStore
 from src.memory.delta import MemoryStore
 from src.rules.rule_system import RuleSystem
-from src.engine.world_template import load_world_template, world_template_path
+from src.engine.world_template import load_world_template
 from src.webui.services import bot_access, character_cards, characters, generation, games, logs, maps, memory, tavern, worlds, rules, plugins, system
 from src.webui.services._common import _parse_game_key, _is_safe_world_id
 
@@ -49,6 +49,8 @@ class WebAPI:
         self.character_gen_max_tokens = character_gen_max_tokens
         self.text_gen_max_tokens = text_gen_max_tokens
         self._plugins = plugin_host
+        if self._plugins and self._handler and hasattr(self._handler, "set_plugin_host"):
+            self._handler.set_plugin_host(self._plugins)
 
     # ---- 规则辅助 ----
 
@@ -97,6 +99,28 @@ class WebAPI:
     def clear_plugin_card_cache(self, plugin_id: str) -> dict[str, Any]:
         return plugins.clear_plugin_card_cache(self, plugin_id)
 
+    def list_plugin_contributions(self, kind: str = "") -> dict[str, Any]:
+        return plugins.list_plugin_contributions(self, kind)
+
+    def list_plugin_themes(self) -> dict[str, Any]:
+        return plugins.list_plugin_themes(self)
+
+    def list_plugin_content(self, kind: str = "", world_id: str = "", rule_id: str = "") -> dict[str, Any]:
+        return plugins.list_plugin_content(self, kind, world_id, rule_id)
+
+    def import_plugin_content(
+        self,
+        kind: str,
+        resource_id: str,
+        plugin_id: str = "",
+        target_world_id: str = "",
+        overwrite: bool = False,
+    ) -> dict[str, Any]:
+        return plugins.import_plugin_content(self, kind, resource_id, plugin_id, target_world_id, overwrite)
+
+    def plugin_asset_path(self, plugin_id: str, relative_path: str) -> Path:
+        return plugins.plugin_asset_path(self, plugin_id, relative_path)
+
     async def check_updates(self, include_prerelease: bool = False) -> dict[str, Any]:
         return await system.check_updates(self, include_prerelease)
 
@@ -104,20 +128,31 @@ class WebAPI:
         """按 world_id 读取世界模板；不存在或非法时返回 None。"""
         if not self._worlds_dir:
             return None
-        return load_world_template(self._worlds_dir, world_id)
+        data = load_world_template(self._worlds_dir, world_id)
+        if data:
+            return data
+        if self._plugins:
+            return self._plugins.load_world_template(world_id)
+        return None
 
     def _load_rule_for_game(self, inst) -> RuleSystem | None:
         """从游戏实例关联的世界模板加载规则系统。"""
         if not inst.world_id or not self._worlds_dir:
             return None
-        world_path = world_template_path(self._worlds_dir, inst.world_id)
-        return RuleSystem.load_for_world_path(world_path, self._rules_dir)
+        world_data = self._load_world_template(inst.world_id)
+        if not world_data:
+            return None
+        return self._load_rule_by_id(str(world_data.get("default_rule") or "freeform_fantasy"))
 
     def _load_rule_by_id(self, rule_id: str) -> RuleSystem | None:
         rule_id = (rule_id or "").strip()
         if not rule_id or not rules.is_valid_rule_id(rule_id):
             return None
         rule_path = RuleSystem.path_for(self._rules_dir, rule_id)
+        if not rule_path.exists() and self._plugins:
+            plugin_path = self._plugins.contribution_path("rule", rule_id)
+            if plugin_path:
+                rule_path = plugin_path
         if not rule_path.exists():
             return None
         return RuleSystem.load(rule_path)

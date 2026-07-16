@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "id": "starter-content",
+  "name": "Starter Content",
+  "version": "0.1.0",
+  "description": "A small DiceFrame content-pack example with a rule, world, character, NPC, item, spell, and class.",
+  "plugin_type": "content-pack",
+  "config_schema": "config.schema.json",
+  "capabilities": ["content.rule", "content.world", "content.character-template"],
+  "permissions": ["plugin.config", "content.read", "content.import"],
+  "contributes": {
+    "rules": ["content/rules/*.json"],
+    "world_templates": ["content/worlds/*.json"],
+    "character_templates": ["content/characters/*.json"],
+    "npcs": ["content/npc/*.json"],
+    "items": ["content/items/*.json"],
+    "spells": ["content/spells/*.json"],
+    "classes": ["content/classes/*.json"]
+  },
+  "docs": "README_CN.md"
+}

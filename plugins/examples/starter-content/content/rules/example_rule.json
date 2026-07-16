@@ -1,0 +1,26 @@
+{
+  "rule_id": "example_rule",
+  "rule_name": "Example Rule",
+  "description": "A minimal rule file for DiceFrame content-pack examples.",
+  "dice_system": "d20",
+  "combat_model": "hp_based",
+  "mechanics": "Roll d20 and compare against the GM target number.",
+  "attribute_points": 60,
+  "max_skills": 6,
+  "skill_point_total": 12,
+  "currency": "gold",
+  "hp_formula": "10 + CON",
+  "attributes": [
+    {"key": "str", "name": "Strength", "min": 1, "max": 20},
+    {"key": "dex", "name": "Dexterity", "min": 1, "max": 20},
+    {"key": "con", "name": "Constitution", "min": 1, "max": 20},
+    {"key": "int", "name": "Intelligence", "min": 1, "max": 20},
+    {"key": "wis", "name": "Wisdom", "min": 1, "max": 20},
+    {"key": "cha", "name": "Charisma", "min": 1, "max": 20}
+  ],
+  "skills": [
+    {"key": "notice", "name": "Notice", "value": 0},
+    {"key": "survival", "name": "Survival", "value": 0},
+    {"key": "arcana", "name": "Arcana", "value": 0}
+  ]
+}

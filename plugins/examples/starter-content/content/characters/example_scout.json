@@ -1,0 +1,17 @@
+{
+  "id": "example_scout",
+  "character_name": "Mira the Scout",
+  "race": "Human",
+  "class": "Scout",
+  "description": "A ready-to-import character template.",
+  "attributes": {"str": 9, "dex": 15, "con": 11, "int": 12, "wis": 14, "cha": 10},
+  "skills": [
+    {"name": "Notice", "value": 3},
+    {"name": "Survival", "value": 4}
+  ],
+  "background": "Mira knows the back trails of Example Valley.",
+  "equipment": [{"name": "Shortbow"}, {"name": "Travel cloak"}],
+  "gold": 18,
+  "rule_id": "example_rule",
+  "world_id": "example_world"
+}

@@ -10,6 +10,7 @@ import shutil
 import subprocess
 import sys
 from pathlib import Path
+import re
 
 import ensure_runtime_deps
 
@@ -17,15 +18,20 @@ import ensure_runtime_deps
 ROOT = Path(__file__).resolve().parents[1]
 FRONTEND_DIR = ROOT / "frontend-v2"
 STATIC_DIR = ROOT / "static-v2"
+ASSET_REF_RE = re.compile(r"""(?:src|href)=["'](/v2-assets/[^"']+)["']""")
 
 
 def frontend_built() -> bool:
     assets_dir = STATIC_DIR / "assets"
-    return (
-        (STATIC_DIR / "index.html").exists()
-        and assets_dir.is_dir()
-        and any(assets_dir.glob("*.js"))
-    )
+    index_path = STATIC_DIR / "index.html"
+    if not index_path.exists() or not assets_dir.is_dir() or not any(assets_dir.glob("*.js")):
+        return False
+    html = index_path.read_text(encoding="utf-8", errors="ignore")
+    for ref in ASSET_REF_RE.findall(html):
+        relative = ref.removeprefix("/v2-assets/")
+        if not (STATIC_DIR / relative).exists():
+            return False
+    return True
 
 
 def run(cmd: list[str], cwd: Path) -> int:

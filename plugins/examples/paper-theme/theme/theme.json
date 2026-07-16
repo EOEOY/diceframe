@@ -1,0 +1,24 @@
+{
+  "id": "paper-theme",
+  "name": "Paper Theme",
+  "description": "A restrained paper-like DiceFrame theme example.",
+  "tokens": {
+    "base": {
+      "--gold": "#b47a32",
+      "--gold-2": "#d59a3a",
+      "--line-soft": "rgba(180, 122, 50, .28)"
+    },
+    "dark": {
+      "--panel": "#251f19",
+      "--panel-2": "#191613",
+      "--text": "#f1e4ce",
+      "--muted": "#baa98e"
+    },
+    "light": {
+      "--panel": "#fff8e8",
+      "--panel-2": "#f2dfb5",
+      "--text": "#33281c",
+      "--muted": "#745d3e"
+    }
+  }
+}

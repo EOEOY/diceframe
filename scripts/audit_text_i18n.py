@@ -12,7 +12,7 @@ import re
 from pathlib import Path
 
 
-ROOT = Path(__file__).resolve().parent
+ROOT = Path(__file__).resolve().parents[1]
 SCAN_DIRS = ["static", "src", "templates", "prompts"]
 SCAN_FILES = ["web_server.py"]
 TEXT_SUFFIXES = {".html", ".css", ".js", ".py", ".json", ".md", ".txt"}

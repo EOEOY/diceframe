@@ -45,7 +45,7 @@ function sendPerc() { if (percTarget.value && percText.value.trim()) { emit('per
     <div class="gm-group gm-player-group">
       <h4>玩家</h4>
       <button @click="emit('invite')"><NIcon :component="ShareOutline" size="14" /> 邀请链接</button>
-      <button @click="emit('bot-bind')" title="复制一次性 Bot 绑定命令；绑定成功后自动作废"><NIcon :component="BugOutline" size="14" /> 一次性 Bot 绑定</button>
+      <button @click="emit('bot-bind')" title="复制 Bot 绑定命令；绑定成功后自动作废"><NIcon :component="BugOutline" size="14" /> Bot绑定</button>
       <button @click="emit('cards')"><NIcon :component="PersonOutline" size="14" /> 角色视角</button>
       <button @click="emit('world-switch')"><NIcon :component="BookOutline" size="14" /> 切换世界书</button>
     </div>
