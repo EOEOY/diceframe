@@ -128,8 +128,23 @@ export interface MapLocation {
   [key: string]: unknown
 }
 
+export interface MapAsset {
+  id: string
+  name?: string
+  description?: string
+  plugin_id?: string
+  plugin_name?: string
+  path?: string
+  url?: string
+}
+
 export interface MapData {
   locations: MapLocation[]
+  assets?: {
+    icons?: MapAsset[]
+    scenes?: MapAsset[]
+    grids?: MapAsset[]
+  }
   [key: string]: unknown
 }
 
@@ -548,6 +563,8 @@ export interface PluginInfo {
   name: string
   version?: string
   description?: string
+  plugin_type?: string
+  has_entrypoint?: boolean
   enabled: boolean
   running: boolean
   status: string
@@ -555,7 +572,70 @@ export interface PluginInfo {
   config?: Record<string, unknown>
   error?: string
   capabilities?: string[]
+  permissions?: string[]
+  permission_details?: Array<{ id: string; description?: string }>
+  contributions?: PluginContribution[]
   docs?: string
+}
+
+export interface PluginContribution {
+  plugin_id: string
+  plugin_name: string
+  plugin_type: string
+  kind: string
+  key: string
+  path: string
+  title?: string
+  description?: string
+}
+
+export interface PluginTheme {
+  id: string
+  name: string
+  description?: string
+  plugin_id: string
+  plugin_name?: string
+  tokens?: {
+    base?: Record<string, string>
+    dark?: Record<string, string>
+    light?: Record<string, string>
+  }
+}
+
+export interface PluginThemesResponse {
+  ok: boolean
+  error?: string
+  themes: PluginTheme[]
+  total?: number
+}
+
+export interface PluginContentResource {
+  id?: string
+  name?: string
+  character_name?: string
+  description?: string
+  plugin_id?: string
+  plugin_name?: string
+  source?: string
+  readonly?: boolean
+  [key: string]: unknown
+}
+
+export interface PluginContentResponse {
+  ok: boolean
+  error?: string
+  resources: Record<string, PluginContentResource[]>
+  total?: number
+}
+
+export interface PluginContentImportResponse {
+  ok?: boolean
+  error?: string
+  imported_as?: 'character_card' | 'lorebook_entry' | string
+  card?: CharacterCard
+  entry?: LoreEntry
+  source_plugin_id?: string
+  [key: string]: unknown
 }
 
 export interface PluginMarketplaceItem {
@@ -563,6 +643,7 @@ export interface PluginMarketplaceItem {
   name: string
   version?: string
   description?: string
+  plugin_type?: string
   repository_url?: string
   package_url?: string
   branch?: string
@@ -570,6 +651,7 @@ export interface PluginMarketplaceItem {
   license?: string
   tags?: string[]
   capabilities?: string[]
+  permissions?: string[]
   docs?: string
   homepage?: string
   installed?: boolean

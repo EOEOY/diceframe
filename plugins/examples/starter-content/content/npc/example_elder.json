@@ -1,0 +1,8 @@
+{
+  "id": "example_elder",
+  "name": "Elder Rowan",
+  "description": "The oldest resident of Rivergate. He remembers when the tower lights first went out.",
+  "keywords": ["Elder Rowan", "Rowan"],
+  "world_id": "example_world",
+  "tier": "background"
+}

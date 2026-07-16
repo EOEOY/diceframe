@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, h } from 'vue'
+import { computed, h, onMounted } from 'vue'
 import { RouterLink, useRoute } from 'vue-router'
 import {
   NConfigProvider, NMessageProvider, NDialogProvider, NLoadingBarProvider,
@@ -20,7 +20,7 @@ import StartupUpdateCheck from '@/components/common/StartupUpdateCheck.vue'
 import { readCurrentGame } from '@/stores/gameContext'
 
 const route = useRoute()
-const { naiveTheme, overrides } = useTheme()
+const { naiveTheme, overrides, loadPluginThemes } = useTheme()
 const { locale, setLocale, t } = useLocale()
 const { updateAvailable } = useUpdateCheck()
 
@@ -72,6 +72,10 @@ function onTopMenuWheel(e: WheelEvent) {
   el.scrollLeft += e.deltaY || e.deltaX
   e.preventDefault()
 }
+
+onMounted(() => {
+  loadPluginThemes().catch(() => undefined)
+})
 </script>
 <template>
   <NConfigProvider :theme="naiveTheme" :theme-overrides="overrides">

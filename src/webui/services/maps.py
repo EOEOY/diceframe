@@ -23,6 +23,25 @@ def get_map_locations(api: "WebAPI", game_key: str) -> dict[str, Any]:
             "tier": e.get("tier", "background"),
             "content": e.get("content", "")[:120],
             "keywords": e.get("keywords", []),
+            "source": "lorebook",
+        })
+    map_assets = _plugin_map_assets(api, inst.world_id)
+    for loc in map_assets.get("locations", []):
+        loc_id = str(loc.get("id") or loc.get("name") or "")
+        if not loc_id or any(str(existing.get("id") or existing.get("name") or "") == loc_id for existing in locations):
+            continue
+        locations.append({
+            "id": loc_id,
+            "name": str(loc.get("name") or loc_id),
+            "connected_to": loc.get("connected_to", []),
+            "tier": loc.get("tier", "background"),
+            "content": str(loc.get("content") or loc.get("description") or "")[:120],
+            "keywords": loc.get("keywords", []),
+            "icon": loc.get("icon", ""),
+            "image": loc.get("image", ""),
+            "plugin_id": loc.get("plugin_id", ""),
+            "plugin_name": loc.get("plugin_name", ""),
+            "source": "plugin",
         })
     current_scene = inst.scene or ""
     if current_scene and locations:
@@ -45,6 +64,11 @@ def get_map_locations(api: "WebAPI", game_key: str) -> dict[str, Any]:
     return {
         "locations": locations,
         "current_scene": current_scene,
+        "assets": {
+            "icons": map_assets.get("icons", []),
+            "scenes": map_assets.get("scenes", []),
+            "grids": map_assets.get("grids", []),
+        },
     }
 
 
@@ -69,3 +93,10 @@ def _find_map_anchor(current_scene: str, locations: list[dict]) -> dict | None:
     if best_score <= 0:
         return locations[0] if locations else None
     return best_loc
+
+
+def _plugin_map_assets(api: "WebAPI", world_id: str) -> dict[str, list[dict[str, Any]]]:
+    plugin_host = getattr(api, "_plugins", None)
+    if not plugin_host:
+        return {"locations": [], "icons": [], "scenes": [], "grids": []}
+    return plugin_host.list_map_assets(world_id)

@@ -12,7 +12,7 @@ import re
 from pathlib import Path
 
 
-ROOT = Path(__file__).resolve().parent
+ROOT = Path(__file__).resolve().parents[1]
 SERVER_PATH = ROOT / "web_server.py"
 ROUTES_DIR = ROOT / "src" / "webui" / "routes"
 SOURCES = [SERVER_PATH] + sorted(ROUTES_DIR.glob("*.py"))

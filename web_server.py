@@ -14,6 +14,13 @@ from src.common_factory import TRPGSubsystems, create_trpg_subsystems
 from src.llm.client import ProviderConfig
 from src.network_proxy import effective_proxy_url, env_proxy_url, is_supported_proxy_url, mask_proxy_url
 from src.plugin_host import PluginHost
+from src.webui.access_password import (
+    consume_reset_password,
+    hash_access_password,
+    is_hashed_access_password,
+    mask_access_password,
+    verify_access_password,
+)
 from src.webui.api import WebAPI
 from src.webui.routes._common import _get_api, _require_confirmed_request
 from src.webui.routes.character_cards import register_character_cards
@@ -195,7 +202,7 @@ def _public_config() -> dict:
     public["embedding_api_key"] = _mask_secret(STATE.get("embedding_api_key", ""))
     public["fallback1_api_key"] = _mask_secret(STATE.get("fallback1_api_key", ""))
     public["fallback2_api_key"] = _mask_secret(STATE.get("fallback2_api_key", ""))
-    public["access_password"] = _mask_secret(STATE.get("access_token", ""))
+    public["access_password"] = mask_access_password(STATE.get("access_token", ""))
     public["bot_token"] = _mask_secret(STATE.get("bot_token", ""))
     public["napcat_token"] = _mask_secret(STATE.get("napcat_token", ""))
     proxy_url = STATE.get("proxy_url", "")
@@ -235,9 +242,20 @@ def save_config():
                      if k not in ("api_key", "embedding_api_key", "fallback1_api_key", "fallback2_api_key", "access_token", "bot_token", "napcat_token", "proxy_url", "qq_bot_running")}
     _atomic_write_json(CONFIG_FILE, non_sensitive)
     sensitive = {k: v for k, v in STATE.items()
-                 if k in ("api_key", "embedding_api_key", "fallback1_api_key", "fallback2_api_key", "access_token", "bot_token", "napcat_token", "proxy_url")}
+                 if k in ("api_key", "embedding_api_key", "fallback1_api_key", "fallback2_api_key", "access_token", "bot_token", "napcat_token", "proxy_url")
+                 and not (k == "access_token" and os.getenv("TRPG_ACCESS_TOKEN"))}
     if any(v for v in sensitive.values()) or SECRETS_FILE.exists():
         _atomic_write_json(SECRETS_FILE, sensitive)
+
+
+def _write_access_token_file(password: str) -> None:
+    token_tmp = ACCESS_TOKEN_FILE.with_suffix(ACCESS_TOKEN_FILE.suffix + ".tmp")
+    token_tmp.write_text(password + "\n", encoding="utf-8")
+    token_tmp.replace(ACCESS_TOKEN_FILE)
+
+
+def _delete_access_token_file() -> None:
+    ACCESS_TOKEN_FILE.unlink(missing_ok=True)
 
 if _migrated:
     save_config()
@@ -319,20 +337,31 @@ async def _embed_pending_memories(app: web.Application):
         logger.exception("Embedding backfill failed")
 
 async def on_startup(app: web.Application) -> None:
-    if not STATE.get("access_token"):
+    reset_password = consume_reset_password(DATA_DIR)
+    if reset_password:
+        STATE["access_token"] = hash_access_password(reset_password)
+        save_config()
+        _delete_access_token_file()
+        logger.warning("访问密码已通过 data/reset_access_password.txt 重置，重置文件已删除。")
+    elif not STATE.get("access_token"):
         import secrets as _secrets
-        STATE["access_token"] = _secrets.token_urlsafe(18)
+        generated_password = _secrets.token_urlsafe(18)
+        STATE["access_token"] = hash_access_password(generated_password)
+        save_config()
+        _write_access_token_file(generated_password)
         print("\n" + "=" * 60, flush=True)
-        print("  Access token (changes each restart): " + STATE["access_token"], flush=True)
+        print("  Initial access password: " + generated_password, flush=True)
         print("  Frontend will prompt for this on open.", flush=True)
-        print("  For a fixed token: set env TRPG_ACCESS_TOKEN", flush=True)
+        print("  It is also saved once to data/access_token.txt.", flush=True)
+        print("  If forgotten later: create data/reset_access_password.txt and restart.", flush=True)
         print("=" * 60 + "\n", flush=True)
+    elif not is_hashed_access_password(STATE.get("access_token", "")) and not os.getenv("TRPG_ACCESS_TOKEN"):
+        STATE["access_token"] = hash_access_password(STATE["access_token"])
+        save_config()
+        _delete_access_token_file()
+        logger.info("已将旧版明文访问密码迁移为哈希保存。")
     else:
         logger.info("使用配置的固定访问密码（来自 env 或 secrets.json）")
-    token_tmp = ACCESS_TOKEN_FILE.with_suffix(ACCESS_TOKEN_FILE.suffix + ".tmp")
-    token_tmp.write_text(STATE["access_token"] + "\n", encoding="utf-8")
-    token_tmp.replace(ACCESS_TOKEN_FILE)
-    logger.info("当前访问密码已保存到: %s", ACCESS_TOKEN_FILE)
     subsystems = _build_subsystems()
     app["subsystems"] = subsystems
     plugin_host = PluginHost(ROOT / "plugins", DATA_DIR / "plugins", base_env={
@@ -432,7 +461,7 @@ async def auth_middleware(request: web.Request, handler):
     auth = request.headers.get("Authorization", "")
     bearer = auth[7:].strip() if auth.lower().startswith("bearer ") else ""
     qtoken = request.query.get("token", "")
-    owner_authenticated = bool(token and (bearer == token or qtoken == token))
+    owner_authenticated = bool(token and (verify_access_password(bearer, token) or verify_access_password(qtoken, token)))
     request["owner_authenticated"] = owner_authenticated
     share_uid = _share_player_user_id(request)
 
@@ -579,7 +608,7 @@ async def api_config_post(request: web.Request) -> web.Response:
                 value = _clean_text_value(body[k])
                 if not value:
                     continue
-                STATE[k] = value
+                STATE[k] = hash_access_password(value) if k == "access_token" else value
                 continue
             if k in _API_FORMAT_KEYS:
                 STATE[k] = _normalize_api_format(body[k])
@@ -632,6 +661,8 @@ async def api_config_post(request: web.Request) -> web.Response:
     if float(STATE.get("napcat_reply_delay_max_sec", 0)) < float(STATE.get("napcat_reply_delay_min_sec", 0)):
         return web.json_response({"ok": False, "error": "NapCat 回复延迟上限不能小于下限"}, status=400)
     save_config()
+    if "access_token" in body:
+        _delete_access_token_file()
 
     bot_fields = {key for key in STATE if key.startswith("napcat_")} | {"bot_token", "qq_bot_enabled"}
     if set(body) & bot_fields:

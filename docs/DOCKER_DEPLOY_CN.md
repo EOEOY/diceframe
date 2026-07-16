@@ -46,7 +46,8 @@ docker compose build --no-cache
 - `./data` 是运行时目录，已经在 `.gitignore` 和 `.dockerignore` 中排除。
 - `.env` 只放本机部署配置，已经在 `.gitignore` 和 `.dockerignore` 中排除。
 - `.env.example` 可以提交，里面不应写真实 API key、token、群号或私有地址。
-- 若不设置 `TRPG_ACCESS_TOKEN`，服务会自动生成访问口令并写入 `./data/access_token.txt`。
+- 若不设置 `TRPG_ACCESS_TOKEN`，服务会自动生成首次访问口令并写入 `./data/access_token.txt`。
+- 若忘记 WebUI 访问密码，在挂载出来的 `./data` 目录新建 `reset_access_password.txt`，写入新密码并重启容器；重置成功后该文件会自动删除。
 
 ## QQ / NapCat
 

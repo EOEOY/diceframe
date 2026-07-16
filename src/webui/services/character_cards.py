@@ -91,7 +91,7 @@ def list_character_cards(api: "WebAPI") -> dict[str, Any]:
 
 
 def save_character_card(api: "WebAPI", character: dict) -> dict[str, Any]:
-    card = _to_character_card(character, source="角色卡库")
+    card = _to_character_card(character, source=str(character.get("source") or "角色卡库"))
     cards = _read_cards(api)
     sig = _card_signature(card)
     for existing in cards:

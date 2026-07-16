@@ -1,0 +1,19 @@
+{
+  "world_id": "example_world",
+  "world_name": "Example Valley",
+  "description": "A compact fantasy valley for testing content packs.",
+  "language": "en",
+  "suggested_difficulty": "standard",
+  "default_rule": "example_rule",
+  "world_setting": "A quiet valley with an old tower, a river road, and one unresolved local mystery.",
+  "starter_scene": "The party arrives at Rivergate at dusk.",
+  "starter_lorebook": [
+    {
+      "name": "Rivergate",
+      "type": "location",
+      "keywords": ["Rivergate", "river road"],
+      "content": "A small trade stop beside the river road.",
+      "tier": "background"
+    }
+  ]
+}

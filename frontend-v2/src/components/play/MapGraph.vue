@@ -8,6 +8,10 @@ const emit = defineEmits<{ 'lore-click': [name: string] }>()
 interface MapNode { id: string; name: string; x: number; y: number; current: boolean }
 
 const locations = computed<MapLocation[]>(() => props.map?.locations || [])
+const assetCount = computed(() => {
+  const assets = props.map?.assets || {}
+  return (assets.icons?.length || 0) + (assets.scenes?.length || 0) + (assets.grids?.length || 0)
+})
 const nodes = computed<MapNode[]>(() => {
   const locs = locations.value
   const n = locs.length
@@ -63,5 +67,6 @@ const edges = computed(() => {
       </g>
     </svg>
     <p v-else class="muted">暂无地图数据。</p>
+    <p v-if="assetCount" class="muted">已加载 {{ assetCount }} 个地图包素材。</p>
   </section>
 </template>

@@ -1,0 +1,7 @@
+{
+  "id": "example_spark",
+  "name": "Spark",
+  "description": "A tiny utility spell that lights a candle, fuse, or fingertip.",
+  "mechanics": "Usually requires no roll unless used under pressure.",
+  "rules": ["example_rule"]
+}

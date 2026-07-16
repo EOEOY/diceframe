@@ -64,6 +64,7 @@ class GameHandler:
         self.rules_dir = rules_dir or Path(".")
         self._prompt = PromptComposer(self.prompts_dir, self.rules_dir, self.memory_store)
         self.worlds_dir = worlds_dir or (Path(__file__).parent.parent.parent / "templates" / "worlds")
+        self._plugin_host = None
         self._factory = GameFactory(self.registry, self.lorebook_store, self.worlds_dir)
         self._state_applier = StateUpdateApplier(self.rules_dir, self.worlds_dir, self._load_world_template)
         self._progression = ProgressionResolver(self.rules_dir, self.worlds_dir)
@@ -127,15 +128,29 @@ class GameHandler:
         language: str = DEFAULT_LANGUAGE,
     ) -> GameInstance:
         """兼容旧入口；实际逻辑已拆到 GameFactory。"""
-        return await self._factory.create_game(
+        plugin_template = None
+        if self._plugin_host and not self._factory.load_world_template(world_id):
+            plugin_template = self._plugin_host.load_world_template(world_id)
+        instance = await self._factory.create_game(
             game_key, world_id, world_name, group_name,
             rule_id=rule_id, seed_code=seed_code, difficulty=difficulty,
             language=language,
         )
+        if plugin_template:
+            await self._factory.init_world_from_template(world_id, plugin_template)
+        return instance
 
     def _load_world_template(self, world_id: str) -> dict | None:
         """兼容旧内部调用；实际逻辑已拆到 GameFactory。"""
-        return self._factory.load_world_template(world_id)
+        data = self._factory.load_world_template(world_id)
+        if data:
+            return data
+        if self._plugin_host:
+            return self._plugin_host.load_world_template(world_id)
+        return None
+
+    def set_plugin_host(self, plugin_host) -> None:
+        self._plugin_host = plugin_host
 
     async def _init_world_from_template(self, world_id: str, template: dict) -> None:
         """兼容旧内部调用；实际逻辑已拆到 GameFactory。"""

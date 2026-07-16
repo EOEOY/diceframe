@@ -178,6 +178,7 @@ def rebuild_lorebook_index(api: "WebAPI", world_id: str) -> None:
 def list_world_templates(api: "WebAPI") -> dict[str, Any]:
     """列出所有可用的世界模板。"""
     templates = []
+    seen: set[str] = set()
     worlds_dir = api._worlds_dir
     if worlds_dir and worlds_dir.is_dir():
         for f in sorted(worlds_dir.glob("*.json")):
@@ -186,15 +187,43 @@ def list_world_templates(api: "WebAPI") -> dict[str, Any]:
                 world_id = data.get("world_id", f.stem)
                 if "_blank_" in str(world_id) and not data.get("starter_lorebook", []):
                     continue
-                templates.append({
-                    "world_id": world_id,
-                    "world_name": data.get("world_name", f.stem),
-                    "description": data.get("description", ""),
-                    "language": data.get("language", ""),
-                    "suggested_difficulty": data.get("suggested_difficulty", "标准"),
-                    "default_rule": data.get("default_rule", "freeform_fantasy"),
-                    "lorebook_count": len(data.get("starter_lorebook", [])),
-                })
+                templates.append(_world_template_summary(data, f.stem))
+                seen.add(str(world_id))
             except Exception:
                 logger.warning("世界模板读取失败: %s", f, exc_info=True)
+    for item in _plugin_world_templates(api):
+        if str(item.get("world_id") or "") not in seen:
+            templates.append(item)
+            seen.add(str(item.get("world_id") or ""))
     return {"templates": templates, "total": len(templates)}
+
+
+def _world_template_summary(data: dict[str, Any], fallback_id: str) -> dict[str, Any]:
+    world_id = data.get("world_id", fallback_id)
+    return {
+        "world_id": world_id,
+        "world_name": data.get("world_name", fallback_id),
+        "description": data.get("description", ""),
+        "language": data.get("language", ""),
+        "suggested_difficulty": data.get("suggested_difficulty", "标准"),
+        "default_rule": data.get("default_rule", "freeform_fantasy"),
+        "lorebook_count": len(data.get("starter_lorebook", [])),
+    }
+
+
+def _plugin_world_templates(api: "WebAPI") -> list[dict[str, Any]]:
+    plugin_host = getattr(api, "_plugins", None)
+    if not plugin_host:
+        return []
+    result = []
+    for item in plugin_host.contributions.list("world_template"):
+        try:
+            data = json.loads(item.path.read_text(encoding="utf-8"))
+            summary = _world_template_summary(data, item.path.stem)
+            summary["plugin_id"] = item.plugin_id
+            summary["plugin_name"] = item.plugin_name
+            summary["readonly"] = True
+            result.append(summary)
+        except Exception:
+            logger.warning("插件世界模板读取失败: %s", item.path, exc_info=True)
+    return result

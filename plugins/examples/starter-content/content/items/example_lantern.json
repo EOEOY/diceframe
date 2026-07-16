@@ -1,0 +1,8 @@
+{
+  "id": "example_lantern",
+  "name": "Blue Lantern",
+  "description": "A covered lantern that burns with blue flame near old magic.",
+  "effect": "May reveal traces of arcane residue.",
+  "keywords": ["Blue Lantern", "lantern"],
+  "world_id": "example_world"
+}

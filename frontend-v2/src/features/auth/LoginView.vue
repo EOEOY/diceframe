@@ -38,7 +38,11 @@ async function submit() {
         <button class="primary submit" :disabled="busy">{{ busy ? '验证中' : '进入' }}</button>
       </form>
       <p v-if="error" class="error-banner">{{ error }}</p>
-      <p class="hint muted">密码可在启动控制台的 Access token 行查看，也会保存到 <code>data/access_token.txt</code>。</p>
+      <p class="hint muted">首次启动密码会显示在控制台，并写入 <code>data/access_token.txt</code>；设置密码后将只保存安全凭证。</p>
+      <details class="forgot-password">
+        <summary>忘记密码？</summary>
+        <p>在数据目录新建 <code>reset_access_password.txt</code>，写入新密码并重启 DiceFrame。重置成功后该文件会自动删除。</p>
+      </details>
     </section>
   </main>
 </template>
