@@ -17,6 +17,7 @@ Thumbs.db
 
 # 前端 build 产物
 static-v2/assets/
+static-v2/index.html
 
 # 运行日志
 *.log
