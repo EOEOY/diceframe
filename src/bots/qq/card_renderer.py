@@ -38,7 +38,9 @@ def _load_font(size: int):
                 return ImageFont.truetype(path, size=size)
             except Exception:
                 continue
-    return ImageFont.load_default()
+    # Pillow's scalable bundled fallback keeps measurements close to the
+    # requested UI size even when the host has no CJK font installed.
+    return ImageFont.load_default(size=size)
 
 
 def render_card_png(

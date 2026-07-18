@@ -879,7 +879,10 @@ class GameRegistry:
     _KEY_SEPARATOR = "#"
 
     def _save_path(self, game_key: tuple) -> Path:
-        key_str = self._KEY_SEPARATOR.join(str(x) for x in game_key)
+        parts = [str(x) for x in game_key]
+        if any(not part or "/" in part or "\\" in part or part in {".", ".."} for part in parts):
+            raise ValueError(f"非法 game_key 存档路径: {game_key}")
+        key_str = self._KEY_SEPARATOR.join(parts)
         path = self.save_dir / key_str / "state.json"
         base = self.save_dir.resolve()
         parent = path.parent.resolve()

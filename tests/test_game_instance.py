@@ -278,6 +278,8 @@ class TestGameRegistry:
 
         with pytest.raises(ValueError):
             reg._save_path(("web", "..\\..\\..\\..\\outside", "bot"))
+        with pytest.raises(ValueError):
+            reg._save_path(("web", "../../../../outside", "bot"))
 
 
 def test_webapi_parse_key_rejects_path_traversal():

@@ -1,5 +1,6 @@
 from PIL import Image, ImageDraw
 
+from src.bots.qq import card_renderer
 from src.bots.qq.card_renderer import _fit_by_pixel, _load_font, _text_width, _wrap_by_pixel
 
 
@@ -19,7 +20,8 @@ def test_wrapping_accounts_for_first_line_indent():
         assert _text_width(draw, line, font) <= content_width
 
 
-def test_fit_by_pixel_adds_ellipsis_within_width():
+def test_fit_by_pixel_adds_ellipsis_within_width(monkeypatch):
+    monkeypatch.setattr(card_renderer, "_font_paths", lambda: [])
     font = _load_font(19)
     image = Image.new("RGB", (10, 10))
     draw = ImageDraw.Draw(image)
