@@ -5,6 +5,17 @@ from __future__ import annotations
 from aiohttp import web
 
 from src.webui.routes._common import _get_api
+from src.version import APP_NAME, __version__
+
+
+async def api_bot_ping(request: web.Request) -> web.Response:
+    games = _get_api(request).list_games()
+    return web.json_response({
+        "ok": True,
+        "app_name": APP_NAME,
+        "version": __version__,
+        "total": int(games.get("total", 0)),
+    })
 
 
 async def api_bind_game(request: web.Request) -> web.Response:
@@ -30,5 +41,6 @@ async def api_get_bind_token(request: web.Request) -> web.Response:
 
 
 def register_bot(app: web.Application) -> None:
+    app.router.add_get("/api/bot/ping", api_bot_ping)
     app.router.add_post("/api/bot/bind-game", api_bind_game)
     app.router.add_post("/api/games/{game_key}/bot-bind-token", api_get_bind_token)

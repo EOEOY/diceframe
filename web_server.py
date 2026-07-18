@@ -6,6 +6,7 @@ import hmac
 import logging
 import os
 import sys
+from datetime import datetime, timezone
 
 from aiohttp import web
 
@@ -14,6 +15,8 @@ from src.common_factory import TRPGSubsystems, create_trpg_subsystems
 from src.llm.client import ProviderConfig
 from src.network_proxy import effective_proxy_url, env_proxy_url, is_supported_proxy_url, mask_proxy_url
 from src.plugin_host import PluginHost
+from src.plugin_host.package_limits import MAX_PLUGIN_PACKAGE_BYTES
+from src.template_catalog import sync_template_catalog
 from src.webui.access_password import (
     consume_reset_password,
     hash_access_password,
@@ -45,21 +48,42 @@ CONFIG_FILE = DATA_DIR / "config.json"
 SECRETS_FILE = DATA_DIR / "secrets.json"
 ACCESS_TOKEN_FILE = DATA_DIR / "access_token.txt"
 
-saved = {}
-if CONFIG_FILE.exists():
-    try:
-        with open(CONFIG_FILE, encoding="utf-8") as f:
-            saved = json.load(f)
-    except (json.JSONDecodeError, ValueError):
-        pass
 
-secrets = {}
-if SECRETS_FILE.exists():
+def _quarantine_invalid_json(path: Path) -> Path | None:
+    timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    candidate = path.with_name(f"{path.stem}.corrupt-{timestamp}{path.suffix}")
+    index = 1
+    while candidate.exists():
+        candidate = path.with_name(f"{path.stem}.corrupt-{timestamp}-{index}{path.suffix}")
+        index += 1
     try:
-        with open(SECRETS_FILE, encoding="utf-8") as f:
-            secrets = json.load(f)
-    except (json.JSONDecodeError, ValueError):
-        pass
+        path.replace(candidate)
+    except OSError:
+        logger.exception("无法隔离损坏的配置文件: %s", path)
+        return None
+    return candidate
+
+
+def _load_json_object(path: Path, label: str) -> dict:
+    if not path.exists():
+        return {}
+    try:
+        with open(path, encoding="utf-8") as file:
+            data = json.load(file)
+        if not isinstance(data, dict):
+            raise ValueError("JSON 根节点不是对象")
+        return data
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError, ValueError) as exc:
+        backup = _quarantine_invalid_json(path)
+        if backup:
+            logger.error("%s损坏，已保留为 %s：%s", label, backup, exc)
+        else:
+            logger.error("%s无法读取且未能隔离：%s", label, exc)
+        return {}
+
+
+saved = _load_json_object(CONFIG_FILE, "主配置")
+secrets = _load_json_object(SECRETS_FILE, "敏感配置")
 
 # env > secrets.json > config.json（用于迁移）
 API_KEY = (os.getenv("TRPG_LLM_API_KEY")
@@ -178,9 +202,16 @@ STATE = {
 
 ROOT = Path(__file__).parent
 PROMPTS_DIR = ROOT / "prompts"
-RULES_DIR = ROOT / "templates" / "rules"
-WORLDS_DIR = ROOT / "templates" / "worlds"
+BUILTIN_RULES_DIR = ROOT / "templates" / "rules"
+BUILTIN_WORLDS_DIR = ROOT / "templates" / "worlds"
+RULES_DIR = DATA_DIR / "templates" / "rules"
+WORLDS_DIR = DATA_DIR / "templates" / "worlds"
 STATIC_V2_DIR = ROOT / "static-v2"
+
+_rule_sync = sync_template_catalog(BUILTIN_RULES_DIR, RULES_DIR, "rules")
+_world_sync = sync_template_catalog(BUILTIN_WORLDS_DIR, WORLDS_DIR, "worlds")
+if any(_rule_sync.values()) or any(_world_sync.values()):
+    logger.info("模板目录已同步到 data: rules=%s worlds=%s", _rule_sync, _world_sync)
 
 
 def _atomic_write_json(path: Path, data: dict) -> None:
@@ -204,6 +235,7 @@ def _public_config() -> dict:
     public["fallback2_api_key"] = _mask_secret(STATE.get("fallback2_api_key", ""))
     public["access_password"] = mask_access_password(STATE.get("access_token", ""))
     public["bot_token"] = _mask_secret(STATE.get("bot_token", ""))
+    public["bot_token_source"] = "env" if os.getenv("TRPG_BOT_TOKEN") else "generated"
     public["napcat_token"] = _mask_secret(STATE.get("napcat_token", ""))
     proxy_url = STATE.get("proxy_url", "")
     public["proxy_url"] = mask_proxy_url(proxy_url)
@@ -246,6 +278,32 @@ def save_config():
                  and not (k == "access_token" and os.getenv("TRPG_ACCESS_TOKEN"))}
     if any(v for v in sensitive.values()) or SECRETS_FILE.exists():
         _atomic_write_json(SECRETS_FILE, sensitive)
+
+
+def _legacy_plugin_bot_token() -> str:
+    """Read the pre-v1.2 QQ plugin token once so upgrades keep working."""
+    legacy_file = DATA_DIR / "plugins" / "qq-napcat" / "secrets.json"
+    if not legacy_file.exists():
+        return ""
+    try:
+        data = json.loads(legacy_file.read_text(encoding="utf-8"))
+    except (OSError, ValueError, json.JSONDecodeError):
+        logger.warning("读取旧 QQ 插件 Bot Token 失败", exc_info=True)
+        return ""
+    return str(data.get("bot_token") or "").strip() if isinstance(data, dict) else ""
+
+
+def _ensure_bot_token() -> str:
+    """Keep one host-level Bot API token, independent from channel plugins."""
+    current = str(STATE.get("bot_token") or "").strip()
+    if current:
+        return current
+    import secrets as _secrets
+    current = _legacy_plugin_bot_token() or _secrets.token_urlsafe(32)
+    STATE["bot_token"] = current
+    save_config()
+    logger.info("已生成全局 Bot API Token；可在设置 → Bot API 中复制")
+    return current
 
 
 def _write_access_token_file(password: str) -> None:
@@ -362,11 +420,11 @@ async def on_startup(app: web.Application) -> None:
         logger.info("已将旧版明文访问密码迁移为哈希保存。")
     else:
         logger.info("使用配置的固定访问密码（来自 env 或 secrets.json）")
+    _ensure_bot_token()
     subsystems = _build_subsystems()
     app["subsystems"] = subsystems
     plugin_host = PluginHost(ROOT / "plugins", DATA_DIR / "plugins", base_env={
         "TRPG_API_BASE": f"http://127.0.0.1:{PORT}",
-        "TRPG_BOT_DATA": str(DATA_DIR / "plugins" / "qq-napcat" / "runtime" / "sessions.json"),
     })
     plugin_host.discover()
     if "qq-napcat" in plugin_host.plugins:
@@ -383,7 +441,6 @@ async def on_startup(app: web.Application) -> None:
             "group_list_mode": STATE.get("napcat_group_list_mode"), "group_list": STATE.get("napcat_group_list"),
             "private_list_mode": STATE.get("napcat_private_list_mode"), "private_list": STATE.get("napcat_private_list"),
             "blocked_users": STATE.get("napcat_blocked_users"), "block_official_bots": STATE.get("napcat_block_official_bots"),
-            "bot_token": STATE.get("bot_token"),
         })
     app["plugin_host"] = plugin_host
     app["api"] = _make_api(subsystems, plugin_host)
@@ -428,15 +485,15 @@ async def on_cleanup(app: web.Application) -> None:
 async def auth_middleware(request: web.Request, handler):
     bot_header = str(request.headers.get("X-Bot-Token") or "")
     if request.path.startswith("/api/bot/") or bot_header:
+        configured_bot_token = str(STATE.get("bot_token") or "")
+        global_authenticated = bool(configured_bot_token and hmac.compare_digest(bot_header, configured_bot_token))
         plugin_host = request.app.get("plugin_host")
-        qq_runtime = plugin_host.plugins.get("qq-napcat") if plugin_host else None
-        qq_enabled = bool(qq_runtime.config.get("enabled")) if qq_runtime else bool(STATE.get("qq_bot_enabled"))
-        if not qq_enabled:
-            return web.json_response({"ok": False, "error": "QQ Bot 插件未启用"}, status=503)
-        configured_bot_token = str(qq_runtime.secrets.get("bot_token") if qq_runtime else STATE.get("bot_token") or "")
-        if not configured_bot_token or not hmac.compare_digest(bot_header, configured_bot_token):
+        plugin_identity = plugin_host.authenticate_api_token(bot_header) if plugin_host else None
+        if not global_authenticated and not plugin_identity:
             return web.json_response({"ok": False, "error": "Bot 服务未授权"}, status=401)
         request["bot_authenticated"] = True
+        if plugin_identity:
+            request["plugin_authenticated"] = plugin_identity
         if request.path.startswith("/api/bot/"):
             return await handler(request)
         game_key = _bot_request_game_key(request)
@@ -457,11 +514,20 @@ async def auth_middleware(request: web.Request, handler):
         request["bot_actor"] = actor
         return await handler(request)
 
+    if request.path.endswith("/sse") and request.query.get("ticket"):
+        game_key = _bot_request_game_key(request)
+        store = request.app.get("sse_tickets")
+        ticket = store.consume(str(request.query.get("ticket") or ""), game_key) if store else None
+        if not ticket:
+            return web.json_response({"ok": False, "error": "SSE 票据无效或已过期"}, status=401)
+        request["user_id"] = ticket.user_id
+        request["sse_ticket_authenticated"] = True
+        return await handler(request)
+
     token = STATE.get("access_token", "")
     auth = request.headers.get("Authorization", "")
     bearer = auth[7:].strip() if auth.lower().startswith("bearer ") else ""
-    qtoken = request.query.get("token", "")
-    owner_authenticated = bool(token and (verify_access_password(bearer, token) or verify_access_password(qtoken, token)))
+    owner_authenticated = bool(token and verify_access_password(bearer, token))
     request["owner_authenticated"] = owner_authenticated
     share_uid = _share_player_user_id(request)
 
@@ -596,7 +662,7 @@ async def api_config_post(request: web.Request) -> web.Response:
               "narrative_max_tokens", "character_gen_max_tokens",
               "summary_max_tokens", "brief_max_tokens",
               "analysis_max_tokens", "text_gen_max_tokens",
-              "proxy_enabled", "proxy_url", "public_base_url", "access_token", "bot_token",
+              "proxy_enabled", "proxy_url", "public_base_url", "access_token",
               "qq_bot_enabled", "napcat_host", "napcat_port", "napcat_token",
               "napcat_heartbeat_sec", "napcat_reconnect_delay_sec", "napcat_action_timeout_sec",
               "napcat_reply_delay_min_sec", "napcat_reply_delay_max_sec", "napcat_command_dedup_window_sec",
@@ -664,7 +730,7 @@ async def api_config_post(request: web.Request) -> web.Response:
     if "access_token" in body:
         _delete_access_token_file()
 
-    bot_fields = {key for key in STATE if key.startswith("napcat_")} | {"bot_token", "qq_bot_enabled"}
+    bot_fields = {key for key in STATE if key.startswith("napcat_")} | {"qq_bot_enabled"}
     if set(body) & bot_fields:
         plugin_host = request.app.get("plugin_host")
         if plugin_host and "qq-napcat" in plugin_host.plugins:
@@ -680,7 +746,6 @@ async def api_config_post(request: web.Request) -> web.Response:
                 "napcat_group_list_mode":"group_list_mode", "napcat_group_list":"group_list",
                 "napcat_private_list_mode":"private_list_mode", "napcat_private_list":"private_list",
                 "napcat_blocked_users":"blocked_users", "napcat_block_official_bots":"block_official_bots",
-                "bot_token":"bot_token",
             }
             changes = {legacy_to_plugin[key]: value for key, value in body.items() if key in legacy_to_plugin}
             await plugin_host.update_config("qq-napcat", changes)
@@ -709,6 +774,37 @@ async def api_config_post(request: web.Request) -> web.Response:
         except Exception:
             logger.warning("配置更新后 embedding 补齐失败", exc_info=True)
     return web.json_response({"ok": True})
+
+
+async def api_bot_token_post(request: web.Request) -> web.Response:
+    denied = _require_confirmed_request(request)
+    if denied is not None:
+        return denied
+    body = await request.json()
+    action = str(body.get("action") or "reveal").strip().lower()
+    if action not in {"reveal", "regenerate"}:
+        return web.json_response({"ok": False, "error": "不支持的 Bot Token 操作"}, status=400)
+
+    regenerated = action == "regenerate"
+    if regenerated:
+        if os.getenv("TRPG_BOT_TOKEN"):
+            return web.json_response({
+                "ok": False,
+                "error": "Bot API Token 由环境变量 TRPG_BOT_TOKEN 管理，请修改环境变量后重启",
+            }, status=409)
+        import secrets as _secrets
+        token = _secrets.token_urlsafe(32)
+        STATE["bot_token"] = token
+        save_config()
+    else:
+        token = _ensure_bot_token()
+
+    return web.json_response({
+        "ok": True,
+        "token": token,
+        "masked": _mask_secret(token)["masked"],
+        "regenerated": regenerated,
+    })
 
 
 def _is_safe_external_url(url: str) -> bool:
@@ -830,17 +926,19 @@ async def api_test_proxy(request: web.Request) -> web.Response:
         })
 
 
-app = web.Application()
+app = web.Application(client_max_size=MAX_PLUGIN_PACKAGE_BYTES + 1024 * 1024)
 app.on_startup.append(on_startup)
 app.on_cleanup.append(on_cleanup)
 
 from src.webui.connection_pool import ConnectionPool
 from src.webui.session import SessionManager, session_middleware
+from src.webui.sse_ticket import SseTicketStore
 
 app.middlewares.append(session_middleware)
 app.middlewares.append(auth_middleware)
 app["session_manager"] = SessionManager(DATA_DIR)
 app["connection_pool"] = ConnectionPool()
+app["sse_tickets"] = SseTicketStore()
 app["static_v2_dir"] = STATIC_V2_DIR
 
 def register_routes(application: web.Application) -> None:
@@ -863,6 +961,7 @@ def register_routes(application: web.Application) -> None:
     # config / test
     application.router.add_get("/api/config", api_config_get)
     application.router.add_post("/api/config", api_config_post)
+    application.router.add_post("/api/config/bot-token", api_bot_token_post)
     application.router.add_post("/api/test-connection", api_test_connection)
     application.router.add_post("/api/test-embedding", api_test_embedding)
     application.router.add_post("/api/test-proxy", api_test_proxy)

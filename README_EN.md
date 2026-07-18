@@ -68,10 +68,12 @@ docker compose up -d --build
 Open:
 
 ```text
-http://localhost:18000
+http://localhost:9876
 ```
 
 Runtime data is stored in `data/`.
+
+See [docs/DOCKER_DEPLOY_EN.md](docs/DOCKER_DEPLOY_EN.md) for ports, volumes, secrets, and NapCat networking.
 
 ## First Game
 
@@ -88,9 +90,27 @@ Runtime data is stored in `data/`.
 - App language controls menus, buttons, settings, and UI messages.
 - Game Language controls GM narration, opening scenes, summaries, quick actions, and AI-generated content.
 - World templates, lorebooks, and content packs declare their content language with `language`. Create prioritizes matching templates while still allowing other-language content.
-- Rule JSON stays as one mechanics file. Add localized display fields such as `rule_name_en`, `name_en`, and `skill_pools_en` when English-facing names or generation hints are needed.
+- Rules use separate language files: `<rule_id>.json` for Chinese and `<rule_id>_en.json` for English. The stable ID and mechanics fields do not change; missing English files fall back to Chinese.
 
 More player-facing help is in [docs/USER_GUIDE_EN.md](docs/USER_GUIDE_EN.md).
+
+## Plugins and Chat Adapters
+
+The built-in QQ/NapCat plugin receives its DiceFrame Bot API Token automatically; users configure only the NapCat connection. External bridges such as MaiBot copy the service URL and token from Settings → Bot API.
+
+The plugin store indexes author-owned repositories. Installation resolves the latest stable GitHub Release to an exact commit; safe declarative updates may run automatically, while process or permission-expanding updates require confirmation. Local/private sharing uses `.dfplugin`. Supported capabilities are channel adapters, content packs, themes, and the location/asset subset of map packs. Import/export, Provider, and tool types remain reserved and cannot be installed from the store.
+
+## Documentation
+
+| Topic | English | 中文 |
+|-------|---------|------|
+| User guide | [USER_GUIDE_EN](docs/USER_GUIDE_EN.md) | [USER_GUIDE_CN](docs/USER_GUIDE_CN.md) |
+| Architecture | [ARCHITECTURE_EN](docs/ARCHITECTURE_EN.md) | [ARCHITECTURE_CN](docs/ARCHITECTURE_CN.md) |
+| Docker deployment | [DOCKER_DEPLOY_EN](docs/DOCKER_DEPLOY_EN.md) | [DOCKER_DEPLOY_CN](docs/DOCKER_DEPLOY_CN.md) |
+| Plugin development | [PLUGIN_DEVELOPMENT_EN](docs/PLUGIN_DEVELOPMENT_EN.md) | [PLUGIN_DEVELOPMENT_CN](docs/PLUGIN_DEVELOPMENT_CN.md) |
+| Plugin index and review | [PLUGIN_REGISTRY_EN](docs/PLUGIN_REGISTRY_EN.md) | [PLUGIN_REGISTRY_CN](docs/PLUGIN_REGISTRY_CN.md) |
+| Bot Bridge core | [BOT_BRIDGE_CORE_EN](docs/BOT_BRIDGE_CORE_EN.md) | [BOT_BRIDGE_CORE_CN](docs/BOT_BRIDGE_CORE_CN.md) |
+| Release and packaging | [RELEASE_EN](docs/RELEASE_EN.md) | [RELEASE_CN](docs/RELEASE_CN.md) |
 
 ## Data And Privacy
 
@@ -101,6 +121,8 @@ data/
 ```
 
 This may include API keys, access tokens, saves, plugin data, logs, and private campaign content. Treat it as your own table notebook: back it up if you need it, and check it before sharing it with anyone.
+
+Custom worlds and rules are stored under `data/templates/`, so copying the complete `data/` directory also carries them to a new installation.
 
 ## License
 

@@ -76,6 +76,11 @@ const filteredMarketplace = computed(() => {
   ].some(value => String(value || '').toLowerCase().includes(keyword)))
 })
 
+function canUpdateFromStore(pluginId: string) {
+  const item = marketplace.value.find(candidate => candidate.id === pluginId)
+  return Boolean(item && item.distribution !== 'bundled' && item.installable !== false)
+}
+
 async function load() {
   loading.value = true
   try {
@@ -285,7 +290,24 @@ async function installPlugin() {
     busy.value = ''
   }
 }
+
+async function rescanLocalPlugins() {
+  busy.value = 'rescan'
+  try {
+    await api('/plugins/rescan', { method: 'POST' })
+    toast.success(t('pluginsRescanned'))
+    await load()
+    await loadMarketplace()
+    await loadPluginThemes()
+    await loadContentResources()
+  } catch (e: unknown) {
+    toast.error(errorMessage(e))
+  } finally {
+    busy.value = ''
+  }
+}
 async function installMarketPlugin(item: PluginMarketplaceItem) {
+  if (item.risk_level === 'unrestricted-process' && !window.confirm(t('confirmProcessPluginInstall', { name: item.name }))) return
   busy.value = `market:${item.id}`
   try {
     await api('/plugins/marketplace/install', {
@@ -304,6 +326,8 @@ async function installMarketPlugin(item: PluginMarketplaceItem) {
   }
 }
 async function updateInstalledPlugin(p: PluginInfo) {
+  const marketItem = marketplace.value.find(item => item.id === p.id)
+  if (marketItem?.risk_level === 'unrestricted-process' && !window.confirm(t('confirmProcessPluginUpdate', { name: p.name }))) return
   busy.value = `${p.id}:update`
   try {
     await api(`/plugins/${encodeURIComponent(p.id)}/update`, { method: 'POST' })
@@ -480,11 +504,15 @@ onMounted(async () => {
             <p class="muted">{{ t('installPluginHelp') }}</p>
           </div>
           <div class="install-controls">
-            <input type="file" accept=".zip,application/zip" :aria-label="t('pluginZipAria')" @change="onPluginFile">
+            <input type="file" accept=".dfplugin" :aria-label="t('pluginZipAria')" @change="onPluginFile">
             <NCheckbox v-model:checked="overwriteInstall">{{ t('overwriteSameIdPlugin') }}</NCheckbox>
             <NButton type="primary" :disabled="!installFile" :loading="busy === 'install'" @click="installPlugin">
               <template #icon><NIcon :component="CloudDownloadOutline" /></template>
               {{ t('install') }}
+            </NButton>
+            <NButton secondary :loading="busy === 'rescan'" @click="rescanLocalPlugins">
+              <template #icon><NIcon :component="RefreshOutline" /></template>
+              {{ t('rescanLocalPlugins') }}
             </NButton>
           </div>
         </section>
@@ -578,7 +606,7 @@ onMounted(async () => {
                 <template #icon><NIcon :component="RefreshOutline" /></template>
                 {{ t('restartPlugin') }}
               </NButton>
-              <NButton secondary :loading="busy === `${p.id}:update`" @click="updateInstalledPlugin(p)">
+              <NButton v-if="canUpdateFromStore(p.id)" secondary :loading="busy === `${p.id}:update`" @click="updateInstalledPlugin(p)">
                 <template #icon><NIcon :component="CloudDownloadOutline" /></template>
                 {{ t('updateFromStore') }}
               </NButton>
@@ -619,6 +647,18 @@ onMounted(async () => {
             <p class="market-desc">{{ item.description || t('noDescription') }}</p>
             <div class="tag-row">
               <NTag v-if="item.plugin_type" size="small">{{ pluginTypeLabel(item.plugin_type) }}</NTag>
+              <NTag v-if="item.support?.level === 'partial'" type="warning" size="small">{{ t('pluginSupportPartial') }}</NTag>
+              <NTag v-if="item.support?.level === 'reserved'" type="error" size="small">{{ t('pluginSupportReserved') }}</NTag>
+              <NTag v-if="item.trust_level === 'official'" type="success" size="small">{{ t('pluginTrustOfficial') }}</NTag>
+              <NTag v-else-if="item.trust_level === 'verified'" type="info" size="small">{{ t('pluginTrustVerified') }}</NTag>
+              <NTag v-else size="small">{{ t('pluginTrustCommunity') }}</NTag>
+              <NTag v-if="item.distribution === 'bundled'" type="success" size="small">{{ t('pluginBundled') }}</NTag>
+              <NTag v-else-if="item.risk_level === 'declarative'" type="success" size="small">{{ t('pluginRiskDeclarative') }}</NTag>
+              <NTag v-else-if="item.risk_level === 'unrestricted-process'" type="error" size="small">{{ t('pluginRiskProcess') }}</NTag>
+              <NTag v-if="item.commit_sha" type="info" size="small">{{ t('pluginSourcePinned') }}</NTag>
+              <NTag v-if="item.update_policy === 'automatic'" type="success" size="small">{{ t('pluginUpdateAutomatic') }}</NTag>
+              <NTag v-else-if="item.update_policy === 'notify'" type="warning" size="small">{{ t('pluginUpdateNotify') }}</NTag>
+              <NTag v-else-if="item.update_policy === 'approval-required'" type="error" size="small">{{ t('pluginUpdateApprovalRequired') }}</NTag>
               <NTag v-if="item.installed" type="success" size="small">{{ t('installedVersion', { version: item.installed_version || '' }) }}</NTag>
               <NTag v-if="item.installed && isNewerVersion(item.version, item.installed_version)" type="warning" size="small">{{ t('newVersionAvailable', { version: item.version || '' }) }}</NTag>
               <NTag v-for="tag in item.tags || []" :key="tag" size="small">{{ tag }}</NTag>
@@ -626,8 +666,10 @@ onMounted(async () => {
             <p v-if="item.permissions?.length" class="muted market-permissions">
               {{ t('permissions') }}: {{ item.permissions.slice(0, 4).join(t('listSeparator')) }}{{ item.permissions.length > 4 ? t('andMore') : '' }}
             </p>
+            <p v-if="item.support?.summary" class="muted market-permissions">{{ item.support.summary }}</p>
+            <p v-if="item.verification_error" class="market-warning">{{ item.verification_error }}</p>
             <div class="market-actions">
-              <NButton type="primary" :loading="busy === `market:${item.id}`" @click="installMarketPlugin(item)">
+              <NButton type="primary" :disabled="item.installable === false" :loading="busy === `market:${item.id}`" @click="installMarketPlugin(item)">
                 <template #icon><NIcon :component="CloudDownloadOutline" /></template>
                 {{ item.installed ? t('update') : t('install') }}
               </NButton>
@@ -1032,6 +1074,11 @@ onMounted(async () => {
 
 .market-permissions {
   min-height: 1.5em;
+  margin: -4px 0 10px;
+}
+
+.market-warning {
+  color: var(--red-2);
   margin: -4px 0 10px;
 }
 

@@ -11,6 +11,7 @@ import { useConfirm } from '@/composables/useConfirm'
 import { useLocale } from '@/composables/useLocale'
 import { useSettingsStore } from '@/stores/useSettingsStore'
 import { buildJoinLink } from '@/utils/shareLink'
+import { copyToClipboard } from '@/utils/clipboard'
 import GameTimeline from '@/components/GameTimeline.vue'
 import ActionComposer from '@/components/ActionComposer.vue'
 import GameSidebar from '@/components/GameSidebar.vue'
@@ -42,17 +43,6 @@ const railCollapsed = ref(false)
 function toggleRail() { railCollapsed.value = !railCollapsed.value; localStorage.setItem('play_rail_collapsed', railCollapsed.value ? '1' : '0') }
 function errorMessage(error: unknown): string { return error instanceof Error ? error.message : String(error || t('operationFailed')) }
 function joinNames(names: string[]) { return names.filter(Boolean).join(t('listSeparator')) }
-
-async function copyToClipboard(text: string): Promise<void> {
-  if (navigator.clipboard?.writeText) return navigator.clipboard.writeText(text)
-  const ta = document.createElement('textarea')
-  ta.value = text
-  ta.style.position = 'fixed'
-  ta.style.opacity = '0'
-  document.body.appendChild(ta)
-  ta.select()
-  try { document.execCommand('copy') } finally { document.body.removeChild(ta) }
-}
 
 const actorId = computed(() => game.userId.value || game.player.value?.user_id || game.detail.value?.gm_uid || '')
 const serverJudging = computed(() => game.detail.value?.state === 'active_judgment')

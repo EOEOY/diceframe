@@ -3,16 +3,22 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
+import hmac
 import re
 import shutil
 import subprocess
 import sys
+import time
 import urllib.request
 import zipfile
 from pathlib import Path
 
-import build_launcher
-import build_release
+try:
+    from . import build_launcher, build_release
+except ImportError:  # Direct execution: python scripts/build_portable.py
+    import build_launcher
+    import build_release
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -20,7 +26,10 @@ DIST_DIR = ROOT / "dist"
 BUILD_ROOT = DIST_DIR / "_portable_build"
 CACHE_DIR = DIST_DIR / "_portable_cache"
 DEFAULT_PYTHON_VERSION = "3.11.9"
-GET_PIP_URL = "https://bootstrap.pypa.io/get-pip.py"
+DEFAULT_PYTHON_SHA256 = "009d6bf7e3b2ddca3d784fa09f90fe54336d5b60f0e0f305c37f400bf83cfd3b"
+PIP_BOOTSTRAP_URL = "https://files.pythonhosted.org/packages/5d/95/6b5cb3461ea5673ba0995989746db58eb18b91b54dbf331e72f569540946/pip-26.1.2-py3-none-any.whl"
+PIP_BOOTSTRAP_SHA256 = "382ff9f685ee3bc25864f820aa50505825f10f5458ffff07e30a6d96e5715cab"
+PORTABLE_REQUIREMENTS = ROOT / "requirements-portable.lock"
 
 FORBIDDEN_PATTERNS = [
     re.compile(r"(^|/)data/"),
@@ -39,12 +48,39 @@ FORBIDDEN_PATTERNS = [
 ]
 
 
-def download(url: str, target: Path) -> Path:
+def file_sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def verify_sha256(path: Path, expected_sha256: str) -> None:
+    normalized = expected_sha256.strip().lower()
+    if not re.fullmatch(r"[0-9a-f]{64}", normalized):
+        raise RuntimeError(f"Missing or invalid SHA-256 for {path.name}")
+    actual = file_sha256(path)
+    if not hmac.compare_digest(actual, normalized):
+        raise RuntimeError(
+            f"SHA-256 mismatch for {path.name}: expected {normalized}, got {actual}"
+        )
+
+
+def download(url: str, target: Path, expected_sha256: str) -> Path:
     target.parent.mkdir(parents=True, exist_ok=True)
     if target.exists() and target.stat().st_size > 0:
+        verify_sha256(target, expected_sha256)
         return target
     print(f"Downloading {url}", flush=True)
-    urllib.request.urlretrieve(url, target)
+    temporary = target.with_suffix(target.suffix + ".download")
+    temporary.unlink(missing_ok=True)
+    try:
+        urllib.request.urlretrieve(url, temporary)
+        verify_sha256(temporary, expected_sha256)
+        temporary.replace(target)
+    finally:
+        temporary.unlink(missing_ok=True)
     return target
 
 
@@ -53,31 +89,56 @@ def run(cmd: list[str], cwd: Path) -> None:
     subprocess.run(cmd, cwd=str(cwd), check=True)
 
 
+def remove_generated_tree(path: Path) -> None:
+    """Remove a build-only directory, retrying Windows directory-not-empty races."""
+    for attempt in range(5):
+        if not path.exists():
+            return
+        shutil.rmtree(path, ignore_errors=True)
+        if not path.exists():
+            return
+        time.sleep(0.2 * (attempt + 1))
+    shutil.rmtree(path)
+
+
 def python_embed_url(version: str) -> str:
     return f"https://www.python.org/ftp/python/{version}/python-{version}-embed-amd64.zip"
 
 
-def install_python_runtime(runtime_dir: Path, version: str, python_url: str) -> None:
+def install_python_runtime(
+    runtime_dir: Path,
+    version: str,
+    python_url: str,
+    python_sha256: str,
+    pip_url: str,
+    pip_sha256: str,
+) -> None:
     if runtime_dir.exists():
-        shutil.rmtree(runtime_dir)
+        remove_generated_tree(runtime_dir)
     runtime_dir.mkdir(parents=True)
-    archive = download(python_url, CACHE_DIR / Path(python_url).name)
+    archive = download(python_url, CACHE_DIR / Path(python_url).name, python_sha256)
     with zipfile.ZipFile(archive) as zf:
         zf.extractall(runtime_dir)
     patch_pth(runtime_dir)
-    get_pip = download(GET_PIP_URL, CACHE_DIR / "get-pip.py")
+    pip_wheel = download(pip_url, CACHE_DIR / Path(pip_url).name, pip_sha256)
     python_exe = runtime_dir / "python.exe"
-    run([str(python_exe), str(get_pip), "--no-warn-script-location"], runtime_dir)
     run(
         [
             str(python_exe),
-            "-m",
-            "pip",
+            "-c",
+            (
+                "import sys; "
+                "sys.path.insert(0, sys.argv.pop(1)); "
+                "from pip._internal.cli.main import main; "
+                "raise SystemExit(main())"
+            ),
+            str(pip_wheel),
             "install",
             "--no-cache-dir",
             "--no-warn-script-location",
+            "--require-hashes",
             "-r",
-            str(ROOT / "requirements.txt"),
+            str(PORTABLE_REQUIREMENTS),
         ],
         runtime_dir,
     )
@@ -195,6 +256,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--output-dir", type=Path, default=DIST_DIR, help="Directory for generated zip")
     parser.add_argument("--python-version", default=DEFAULT_PYTHON_VERSION, help="Embedded Python version")
     parser.add_argument("--python-url", default="", help="Override embedded Python zip URL")
+    parser.add_argument("--python-sha256", default=DEFAULT_PYTHON_SHA256, help="Expected embedded Python zip SHA-256")
+    parser.add_argument("--pip-url", default=PIP_BOOTSTRAP_URL, help="Override bootstrap pip wheel URL")
+    parser.add_argument("--pip-sha256", default=PIP_BOOTSTRAP_SHA256, help="Expected bootstrap pip wheel SHA-256")
     parser.add_argument("--allow-dirty", action="store_true", help="Allow packaging with uncommitted git changes")
     return parser.parse_args()
 
@@ -216,11 +280,18 @@ def main() -> int:
     output_zip = args.output_dir.resolve() / f"{package_name}.zip"
 
     if BUILD_ROOT.exists():
-        shutil.rmtree(BUILD_ROOT)
+        remove_generated_tree(BUILD_ROOT)
     build_release.prepare_package_tree(app_dir)
     (app_dir / "web_ui.bat").unlink(missing_ok=True)
     build_release.build_frontend(app_dir)
-    install_python_runtime(runtime_dir, args.python_version, args.python_url or python_embed_url(args.python_version))
+    install_python_runtime(
+        runtime_dir,
+        args.python_version,
+        args.python_url or python_embed_url(args.python_version),
+        args.python_sha256,
+        args.pip_url,
+        args.pip_sha256,
+    )
     build_windows_launcher(package_dir)
     output_zip = make_zip(package_dir, output_zip)
     print(f"\nPortable package created: {output_zip}")

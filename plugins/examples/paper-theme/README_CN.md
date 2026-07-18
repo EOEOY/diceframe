@@ -1,5 +1,7 @@
 # Paper Theme 示例主题
 
+中文 | [English](README_EN.md)
+
 这是 DiceFrame 的主题示例插件，演示 `theme` 插件如何贡献安全 CSS 变量。
 
 ## 打包

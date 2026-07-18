@@ -1,5 +1,7 @@
 # Starter Content 示例内容包
 
+中文 | [English](README_EN.md)
+
 这是 DiceFrame 的内容包示例插件，演示 `content-pack` 如何贡献规则、世界模板、角色模板、NPC、道具、法术和职业。
 
 ## 打包

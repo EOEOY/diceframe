@@ -1,115 +1,196 @@
 # DiceFrame User Guide
 
-This guide is for players and GMs. It explains how to start a game, play turns, handle dice, read state changes, and run multiplayer games in the browser.
+[中文](USER_GUIDE_CN.md) | English
+
+This guide is for GMs and players. It explains starting a game, taking actions, rolling dice, and using chat adapters without covering the code architecture.
 
 ## First Launch
 
-Start the Web UI, then open the address printed in the terminal:
+Start the WebUI and open the address printed in the terminal, normally:
 
 ```text
 http://localhost:18000
 ```
 
-On first use, open Settings and configure your model:
+On the first visit, open Settings and enter:
 
-- API base URL: an OpenAI-compatible Chat Completions endpoint.
-- Model: the model name provided by your provider.
-- API Key: your provider key.
+- API URL for an OpenAI-compatible Chat Completions service.
+- Model name, for example `deepseek-v4-pro`.
+- API key from that service.
 
-Use the connection test in Settings before starting a real game.
+Save the settings and use Test connection to verify that the model can respond.
 
-## Start A Game
+## Start a Game
 
 1. Open Create.
-2. Set Game Language to English.
-3. Choose a world template, ask AI to generate a world, or write your own setting.
-4. Choose a rule and difficulty.
-5. Create characters, import cards, or draft characters with AI.
+2. Choose the game language.
+3. Select a world template, generate one with AI, or enter your own setting.
+4. Choose the rules and difficulty.
+5. Create a character, or generate a draft and edit it.
 6. Enter Play.
-7. Type a character action, such as “I examine the runes on the wall.”
+7. Submit an action such as “I inspect the runes on the wall.”
 
-DiceFrame sends player actions to the GM model. The model returns narration plus structured state tags. DiceFrame parses those tags and updates HP, items, gold, XP, scene state, private messages, and other records.
+DiceFrame sends the action to the GM model, parses narrative state tags, and records changes to HP, inventory, gold, experience, scene, and related state.
 
-## Languages And Content
+## Languages and Content
 
-The app language in Settings controls Web UI text. Game Language on Create is saved into the game and controls GM narration, opening scenes, summaries, quick actions, and AI-generated content.
+Interface language changes WebUI text. Game language is stored in the save and controls GM narration, opening scenes, summaries, quick actions, and AI-generated content.
 
-World templates, lorebooks, and content packs have their own content language. Create prioritizes matching templates and shows the content language for other templates or lorebooks. If you choose a Chinese lorebook while using the English UI, its Chinese content remains Chinese; choosing English content in the Chinese UI works the same way.
+World templates, lorebooks, and content packs have their own `language`. Create prioritizes matching content but still shows other languages. Selecting Chinese content in an English UI does not translate the content, and vice versa.
 
-Rules are split by language: `<rule_id>.json` (Chinese) + `<rule_id>_en.json` (English). The game loads the version matching its language, falling back to Chinese if the English file is missing.
+Rules use `<rule_id>.json` for Chinese and `<rule_id>_en.json` for English. The game loads the matching language and falls back to Chinese when an English file is absent.
 
-## Turns And Actions
+## Turns and Actions
 
-In solo mode, an action usually advances the game immediately.
+Solo games normally progress after an action is submitted.
 
-In multiplayer mode, each active player can submit an action for the current round. When all active players have acted, the game advances. The GM can also force-advance if someone is away or the scene only needs some players to act.
-
-Players may revise their action for the current round up to the table limit. The GM model reads only the latest submitted version.
-
-## Dice Flow
-
-Some actions resolve directly. Some need a check.
-
-When DiceFrame decides an action needs dice, it stops and asks for a roll. After the roll is recorded, the GM model continues narration using that result. This keeps the dice moment visible instead of letting the model silently decide the outcome.
-
-Typical flow:
-
-1. Player submits an action.
-2. DiceFrame says the action needs a dice check.
-3. Player or GM rolls.
-4. The roll is attached to the action.
-5. GM narration continues with the roll result.
-
-## State Changes
-
-After GM narration, DiceFrame shows State Changes. These are the actual changes written to the save.
-
-Common state changes include:
-
-- HP damage or healing.
-- Items gained, lost, or consumed.
-- Gold gained or spent.
-- XP and level changes.
-- Scene or location changes.
-- Private perception messages.
-
-If narration and state changes disagree, trust State Changes. Narration is descriptive; state changes are what the system saved.
+In multiplayer, each active player may submit one action per round. DiceFrame advances when all active players have submitted, or when the GM forces progression. A player may revise the current action within the configured limit; only the final version is sent to the GM model.
 
 ## Multiplayer
 
-The GM creates a game and shares invite links with players.
-
-Players can:
+The GM creates a game and sends the invite link. Players can:
 
 - Join the current game.
 - Create a character.
 - Claim an existing character.
 - Submit actions from their own player page.
 
-The GM can see player status in the Play view. Mark a player as Away when they are temporarily absent. Away players do not block the round and are assumed to follow the party without making major decisions.
+The GM can view player status. Mark a temporarily absent player Away; that player follows the party without initiating major decisions and no longer blocks the round. Restore the player when they return.
 
-## Chat Bot Note
+## Dice Flow
 
-DiceFrame can also connect a Web game to group chat through the QQ / NapCat plugin.
+Some actions resolve directly; others require a check. When a check is needed, DiceFrame pauses before narration and asks for a roll:
+
+1. A player submits an action.
+2. DiceFrame requests a check.
+3. The player or GM rolls.
+4. The result is attached to the pending action.
+5. The GM model continues with the known result.
+
+The GM can handle or force progression when a player cannot complete the flow.
+
+## Reading State Changes
+
+After GM narration, the State changes panel shows what was actually committed to the save:
+
+- HP damage or healing.
+- Items gained, lost, or consumed.
+- Gold gained, paid, or deducted.
+- Experience and level changes.
+- Scene or situation changes.
+- Character-private perceptions.
+
+If prose and recorded state conflict, the recorded state is authoritative.
+
+## Chat Bot
+
+DiceFrame can connect a Web game to QQ group chat through the built-in QQ/NapCat plugin. The adapter uses HTTP APIs and does not read saves directly.
+
+1. Open plugin settings in the WebUI.
+2. Enter the NapCat WebSocket address, port, and token.
+3. Enable QQ / NapCat.
+4. Copy the Bot binding command from the game page.
+5. Send it to the target group.
+
+The built-in plugin receives its DiceFrame Bot API Token automatically. For an external bridge such as MaiBot, copy the DiceFrame URL and token from Settings → Bot API into that bridge. Regenerating the token invalidates the old value.
+
+## Using the Plugin Store
+
+Open Settings → Plugins → Plugin Store. The store is an index: authors retain their source repositories while DiceFrame pins the latest stable Release to an exact commit during installation.
+
+- Supported means the integration exists now. Partial means only the listed subset works. Reserved types cannot be installed from the store.
+- Source pinned means installation resolves the latest stable GitHub Release to an exact commit and checks the plugin ID, version, and permissions again. It is not a code-safety guarantee.
+- `official`, `verified`, and `community` describe source/review level, not absolute safety. Install process plugins only from trusted authors.
+- A disabled Install button is accompanied by a reason. Bundled plugins update with DiceFrame; entries without a public repository or stable Release cannot be installed.
+- After installation, review permissions, enter the plugin's own settings, and enable it. QQ/NapCat still needs no manually entered DiceFrame Bot Token.
+- Declarative plugins may update automatically when their runtime type and effective permissions do not expand. Process plugins only notify and require confirmation; permission or runtime expansion also requires confirmation.
+- Privately shared plugins should use a `.dfplugin` file produced by the packaging script. Select it under Local Install. After manually copying a plugin directory, use Rescan Local Plugins.
+
+## Common Chat Commands
+
+The examples below use `@bot` for mentioning the Bot:
+
+```text
+@bot 帮助
+@bot 加入 CharacterName
+@bot 新建角色
+@bot 车卡
+@bot AI车卡
+@bot 邀请
+@bot 前情
+@bot 地图
+@bot 状态
+@bot 感知
+@bot 支付
+@bot 掷骰
+@bot I inspect the runes on the wall
+@bot 推进
+@bot 下一轮
+@bot 暂离
+@bot 回来
+```
+
+- `加入 CharacterName`: bind the platform account to a Web character.
+- `新建角色` / `车卡`: get character-creation instructions or an entry link.
+- `AI车卡`: generate a character draft for confirmation.
+- `邀请`: send the player join link.
+- `前情`: show the public recap and recent turns.
+- `地图`: show the current and known locations.
+- `状态`: show the claimed character summary.
+- `感知`: request character-private information, normally by direct message.
+- `支付`: view and accept or reject pending payments.
+- `掷骰`: confirm a pending check.
+- `推进` / `下一轮`: let the GM or an authorized account advance.
+- `暂离` / `回来`: leave temporarily or resume participation.
+
+## Chat Actions
+
+Players may mention the Bot and send a natural-language action:
+
+```text
+@bot I circle behind the guard and look for the key on his belt
+```
+
+If a check is required, the Bot asks for `@bot 掷骰`. Otherwise DiceFrame progresses and sends the GM narration and recorded state changes back to the group.
+
+## Private Information
+
+Some clues belong to one character, such as hidden doors, hallucinations, dreams, private thoughts, or unique perceptions. In group chat, send:
+
+```text
+@bot 感知
+```
+
+The Bot attempts a direct message. If that fails, it asks the player to check temporary-session or friend settings.
 
 ## Troubleshooting
 
 ### The AI does not respond
 
-Check Settings first. Most failures are caused by an incorrect API key, model name, base URL, provider compatibility issue, or network problem.
+Check model settings and Test connection. Common causes are an incorrect API key, model name, incompatible base URL, or network failure.
 
 ### A player cannot act
 
-They may be dead, not joined to the game, waiting during resolution, or viewing as GM preview. Check the player status before refreshing.
+The character may be dead, not joined to the game, waiting during resolution, or viewed through GM preview. Check player status before refreshing.
 
-### The game seems stuck
+### The Bot does not respond
 
-In multiplayer, the game may still be waiting for active players. The GM can force-advance from the Web UI.
+Confirm that QQ/NapCat is enabled, then check the NapCat WebSocket host, port, and token. The group must also be bound to a game.
+
+### Group chat does not progress
+
+A multiplayer round may still be waiting for another active player. The GM can send `@bot 推进` or force progression in the WebUI.
 
 ### State looks wrong
 
-Refresh the game detail. If it still looks wrong, keep the save and avoid deleting `data/`; the save is useful for debugging.
+Refresh the game detail. If narration conflicts with State changes, the recorded changes are authoritative. Preserve the save instead of deleting `data/` if further investigation is needed.
+
+### Will upgrades delete custom worlds or rules?
+
+No. Bundled templates are synchronized into `data/templates/`, while custom and AI-generated content is kept as user data. Upgrades refresh built-ins without overwriting user content. Copy the complete `data/` directory when moving computers.
+
+If `data/config.json` or `data/secrets.json` is damaged, DiceFrame preserves it as `*.corrupt-timestamp.json` and starts with a safe empty configuration. Do not publish the preserved copy because it may contain API keys or credentials.
 
 ### Can I publish saves or chat logs?
 
-Usually no. `data/` may contain API keys, access tokens, private messages, real group IDs, and full campaign logs. Do not upload it to GitHub.
+This is not recommended. `data/` may contain API keys, access credentials, real group IDs, private messages, and complete campaign records. Never commit `data/`, `.env`, logs, or caches to a public repository.

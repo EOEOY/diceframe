@@ -14,6 +14,12 @@ if TYPE_CHECKING:
 def list_plugins(api: "WebAPI") -> dict[str, Any]:
     return {"ok": True, "plugins": api._plugins.list_public() if api._plugins else []}
 
+async def rescan_plugins(api: "WebAPI") -> dict[str, Any]:
+    if not api._plugins:
+        return {"ok": False, "error": "插件宿主未启用", "plugins": []}
+    await api._plugins.rescan()
+    return {"ok": True, "plugins": api._plugins.list_public()}
+
 def plugin_detail(api: "WebAPI", plugin_id: str) -> dict[str, Any]:
     if not api._plugins: return {"ok": False, "error": "插件宿主未启用"}
     return {"ok": True, **api._plugins.public_detail(plugin_id)}

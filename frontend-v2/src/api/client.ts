@@ -79,10 +79,10 @@ export async function validateAccessToken(value: string): Promise<void> {
 export function setAccessToken(value: string) { localStorage.setItem(tokenKey, value) }
 export function hasAccessToken(): boolean { return !!localStorage.getItem(tokenKey) }
 
-export function gameEventSource(gameKey: string): EventSource {
-  const q = new URLSearchParams(location.hash.split('?')[1] || '')
-  const token = localStorage.getItem(tokenKey)
-  if (token) q.set('token', token)
+export async function gameEventSource(gameKey: string): Promise<EventSource> {
+  const result = await api<{ ticket: string }>(`/games/${encodeURIComponent(gameKey)}/sse-ticket`, { method: 'POST' })
+  const q = new URLSearchParams(shareQuery())
+  q.set('ticket', result.ticket)
   return new EventSource(`/api/games/${encodeURIComponent(gameKey)}/sse?${q}`)
 }
 

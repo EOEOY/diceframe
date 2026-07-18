@@ -1,4 +1,4 @@
-"""Validate and package a DiceFrame plugin directory as a zip file."""
+"""Validate and package a DiceFrame plugin directory as a .dfplugin file."""
 
 from __future__ import annotations
 
@@ -38,9 +38,9 @@ def parse_args() -> argparse.Namespace:
         "--output-dir",
         type=Path,
         default=DEFAULT_OUTPUT_DIR,
-        help="Directory for the generated zip. Defaults to dist/plugins.",
+        help="Directory for the generated .dfplugin package. Defaults to dist/plugins.",
     )
-    parser.add_argument("--overwrite", action="store_true", help="Overwrite an existing zip file.")
+    parser.add_argument("--overwrite", action="store_true", help="Overwrite an existing .dfplugin file.")
     return parser.parse_args()
 
 
@@ -122,7 +122,7 @@ def main() -> int:
     if not plugin_dir.is_dir():
         raise SystemExit(f"Plugin directory does not exist: {plugin_dir}")
     plugin_id, version = validate_with_host(plugin_dir)
-    output_zip = args.output_dir.resolve() / f"{plugin_id}-{version}.zip"
+    output_zip = args.output_dir.resolve() / f"{plugin_id}-{version}.dfplugin"
     make_zip(plugin_dir, output_zip, overwrite=bool(args.overwrite))
     smoke_test_zip(output_zip)
     print(f"Plugin package created: {output_zip}")

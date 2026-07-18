@@ -57,6 +57,9 @@ class WebAPI:
     def list_plugins(self) -> dict[str, Any]:
         return plugins.list_plugins(self)
 
+    async def rescan_plugins(self) -> dict[str, Any]:
+        return await plugins.rescan_plugins(self)
+
     def plugin_detail(self, plugin_id: str) -> dict[str, Any]:
         return plugins.plugin_detail(self, plugin_id)
 

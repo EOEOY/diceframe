@@ -445,6 +445,7 @@ async def generate_world(llm_client, prompt: str, rule_id: str = "freeform_fanta
     world_prefix = world_id.replace("ai_", "")
     data["world_id"] = world_id
     data["language"] = language
+    data["custom"] = True
 
     # 确保条目 ID 以世界前缀开头，防止跨世界冲突
     for entry in data.get("starter_lorebook", []):

@@ -75,7 +75,10 @@ class QQBotConfig:
             advance_allowed_users=_env_list("NAPCAT_ADVANCE_ALLOWED_USERS"),
             trpg_api_base=os.getenv("TRPG_API_BASE", "http://127.0.0.1:9876").rstrip("/"),
             bot_token=os.getenv("TRPG_BOT_TOKEN", ""),
-            data_path=Path(os.getenv("TRPG_BOT_DATA", str(root / "data" / "bot" / "qq_sessions.json"))),
+            data_path=Path(os.getenv(
+                "TRPG_BOT_DATA",
+                str(Path(os.getenv("DICEFRAME_PLUGIN_DATA_DIR", str(root / "data" / "bot"))) / "sessions.json"),
+            )),
             parent_pid=int(os.getenv("TRPG_PARENT_PID", "0") or "0"),
         )
 

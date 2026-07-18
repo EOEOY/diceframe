@@ -4,6 +4,7 @@ import { NButton, NInput, NInputNumber, NSwitch, NTag, NIcon, NCollapse, NCollap
 import {
   ServerOutline, CubeOutline, CloudDownloadOutline, ExtensionPuzzleOutline,
   LockClosedOutline, OptionsOutline, InformationCircleOutline, ShareSocialOutline,
+  KeyOutline, CopyOutline, EyeOutline, RefreshOutline,
 } from '@vicons/ionicons5'
 import { useSettingsStore } from '@/stores/useSettingsStore'
 import { useToast } from '@/composables/useToast'
@@ -18,8 +19,9 @@ import AppPage from '@/components/common/AppPage.vue'
 import TestResultCard from '@/components/admin/TestResultCard.vue'
 import HelpButton from '@/components/common/HelpButton.vue'
 import PluginSettings from '@/features/plugins/PluginSettings.vue'
+import { copyToClipboard } from '@/utils/clipboard'
 
-type SectionId = 'api' | 'memory' | 'network' | 'sharing' | 'plugins' | 'access' | 'advanced' | 'about'
+type SectionId = 'api' | 'memory' | 'network' | 'sharing' | 'botapi' | 'plugins' | 'access' | 'advanced' | 'about'
 type StatusTone = 'default' | 'success' | 'warning' | 'error' | 'info'
 type SystemStatusItem = { label: string; value: string; detail: string; tone: StatusTone }
 type SettingsSection = { id: SectionId; labelKey: MessageKey; icon: Component }
@@ -36,6 +38,7 @@ const sections: SettingsSection[] = [
   { id: 'memory', labelKey: 'settingsSectionMemory', icon: CubeOutline },
   { id: 'network', labelKey: 'settingsSectionNetwork', icon: CloudDownloadOutline },
   { id: 'sharing', labelKey: 'settingsSectionSharing', icon: ShareSocialOutline },
+  { id: 'botapi', labelKey: 'settingsSectionBotApi', icon: KeyOutline },
   { id: 'plugins', labelKey: 'settingsSectionPlugins', icon: ExtensionPuzzleOutline },
   { id: 'access', labelKey: 'settingsSectionAccess', icon: LockClosedOutline },
   { id: 'advanced', labelKey: 'settingsSectionAdvanced', icon: OptionsOutline },
@@ -48,7 +51,10 @@ const testKind = ref<'model' | 'embedding' | 'proxy' | ''>('')
 
 const password = ref('')
 const passwordConfirm = ref('')
+const botToken = ref('')
+const botTokenBusy = ref(false)
 const locationOrigin = typeof window === 'undefined' ? 'http://localhost' : window.location.origin
+const botApiAddress = computed(() => String(store.config.public_base_url || locationOrigin).replace(/\/$/, ''))
 
 const proxySourceLabel = computed(() => {
   const s = store.config.proxy_source
@@ -193,6 +199,47 @@ async function clearProxy() {
     toast.success(t('proxyCleared'))
   } catch (e: unknown) {
     toast.error(errorMessage(e))
+  }
+}
+
+async function revealBotToken(): Promise<string> {
+  botTokenBusy.value = true
+  try {
+    const result = await store.botToken('reveal')
+    botToken.value = result.token
+    return result.token
+  } catch (e: unknown) {
+    toast.error(errorMessage(e))
+    return ''
+  } finally {
+    botTokenBusy.value = false
+  }
+}
+
+async function copyBotToken() {
+  const token = botToken.value || await revealBotToken()
+  if (!token) return
+  await copyToClipboard(token)
+  toast.success(t('botApiTokenCopied'))
+}
+
+async function regenerateBotToken() {
+  const ok = await confirm({
+    title: t('regenerateBotApiToken'),
+    content: t('regenerateBotApiTokenWarning'),
+    type: 'warning',
+    positiveText: t('regenerate'),
+  })
+  if (!ok) return
+  botTokenBusy.value = true
+  try {
+    const result = await store.botToken('regenerate')
+    botToken.value = result.token
+    toast.success(t('botApiTokenRegenerated'))
+  } catch (e: unknown) {
+    toast.error(errorMessage(e))
+  } finally {
+    botTokenBusy.value = false
   }
 }
 
@@ -398,6 +445,43 @@ function openUpdateUrl() {
             <div class="actions-row">
               <NButton type="primary" @click="save(['public_base_url'])">{{ t('saveSharingAddress') }}</NButton>
             </div>
+          </div>
+
+          <div v-show="section === 'botapi'" class="settings-pane">
+            <h3>{{ t('botApiTitle') }}</h3>
+            <p class="muted">{{ t('botApiHelp') }}</p>
+            <div class="form-row">
+              <label>{{ t('diceFrameServiceAddress') }}</label>
+              <NInput :value="botApiAddress" readonly />
+            </div>
+            <p class="form-hint">{{ t('botApiAddressHint') }}</p>
+            <div class="form-row">
+              <label>{{ t('botApiToken') }}</label>
+              <NInput
+                :value="botToken"
+                type="password"
+                show-password-on="click"
+                readonly
+                :placeholder="store.config.bot_token?.configured ? t('botApiTokenReady', { masked: store.config.bot_token.masked }) : t('botApiTokenNotReady')"
+              />
+            </div>
+            <div class="actions-row">
+              <NButton :loading="botTokenBusy" @click="revealBotToken">
+                <template #icon><NIcon :component="EyeOutline" /></template>
+                {{ t('showBotApiToken') }}
+              </NButton>
+              <NButton :loading="botTokenBusy" @click="copyBotToken">
+                <template #icon><NIcon :component="CopyOutline" /></template>
+                {{ t('copyBotApiToken') }}
+              </NButton>
+              <NButton secondary type="warning" :loading="botTokenBusy" :disabled="store.config.bot_token_source === 'env'" @click="regenerateBotToken">
+                <template #icon><NIcon :component="RefreshOutline" /></template>
+                {{ t('regenerateBotApiToken') }}
+              </NButton>
+            </div>
+            <p class="muted">{{ t('botApiBuiltinHint') }}</p>
+            <p class="muted">{{ t('botApiMaiBotHint') }}</p>
+            <p v-if="store.config.bot_token_source === 'env'" class="muted">{{ t('botApiEnvManagedHint') }}</p>
           </div>
 
           <div v-show="section === 'plugins'" class="settings-pane">
