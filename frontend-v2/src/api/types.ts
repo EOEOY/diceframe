@@ -567,6 +567,7 @@ export interface PluginInfo {
   version?: string
   description?: string
   plugin_type?: string
+  support?: { level: 'supported' | 'partial' | 'reserved' | 'unsupported'; summary: string }
   has_entrypoint?: boolean
   enabled: boolean
   running: boolean
@@ -647,9 +648,15 @@ export interface PluginMarketplaceItem {
   version?: string
   description?: string
   plugin_type?: string
+  support?: { level: 'supported' | 'partial' | 'reserved' | 'unsupported'; summary: string }
   repository_url?: string
-  package_url?: string
+  archive_url?: string
+  release_tag?: string
+  release_url?: string
   branch?: string
+  distribution?: 'repository' | 'bundled' | string
+  risk_level?: 'declarative' | 'unrestricted-process' | 'bundled' | 'unknown' | string
+  update_policy?: 'automatic' | 'notify' | 'application' | 'approval-required' | 'blocked' | string
   author?: unknown
   license?: string
   tags?: string[]
@@ -659,6 +666,15 @@ export interface PluginMarketplaceItem {
   homepage?: string
   installed?: boolean
   installed_version?: string
+  installed_commit_sha?: string
+  installed_update_policy?: string
+  trust_level?: 'official' | 'verified' | 'community' | string
+  commit_sha?: string
+  approved_permissions?: string[]
+  permission_changes?: string[]
+  verified?: boolean
+  installable?: boolean
+  verification_error?: string
   manifest?: Record<string, unknown>
 }
 
@@ -716,6 +732,13 @@ export interface SecretField {
   masked: string
 }
 
+export interface BotTokenResponse {
+  ok: boolean
+  token: string
+  masked: string
+  regenerated: boolean
+}
+
 export interface AppConfig {
   base_url?: string
   model?: string
@@ -748,6 +771,8 @@ export interface AppConfig {
   proxy_supported?: boolean
   public_base_url?: string
   access_password?: SecretField
+  bot_token?: SecretField
+  bot_token_source?: 'env' | 'generated'
   [key: string]: unknown
 }
 

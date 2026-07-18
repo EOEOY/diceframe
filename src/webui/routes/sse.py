@@ -16,6 +16,19 @@ from src.webui.routes._common import MAX_ACTION_CHARS, _get_api
 logger = logging.getLogger("trpg")
 
 
+async def api_sse_ticket(request: web.Request) -> web.Response:
+    game_key = request.match_info["game_key"]
+    user_id = request.get("user_id", "")
+    api = _get_api(request)
+    inst = request.app["subsystems"].registry.get(api._parse_key(game_key))
+    if not inst:
+        return web.json_response({"error": "not found"}, status=404)
+    if not user_id or user_id not in inst.players:
+        return web.json_response({"error": "未加入本局，无法订阅"}, status=403)
+    ticket, expires_in = request.app["sse_tickets"].issue(game_key, user_id)
+    return web.json_response({"ticket": ticket, "expires_in": expires_in})
+
+
 async def sse_stream(request: web.Request) -> web.StreamResponse:
     api = _get_api(request)
     gk = request.match_info["game_key"]
@@ -203,6 +216,7 @@ async def _write_play_event(resp: web.StreamResponse, round_number: int, private
 
 
 def register_sse(app: web.Application) -> None:
+    app.router.add_post("/api/games/{game_key}/sse-ticket", api_sse_ticket)
     app.router.add_get("/api/games/{game_key}/stream", sse_stream)
     app.router.add_post("/api/games/{game_key}/stream-action", sse_stream_action)
     app.router.add_get("/api/games/{game_key}/sse", sse_play)

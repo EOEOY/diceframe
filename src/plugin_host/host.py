@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import hmac
 import io
 import json
 import logging
@@ -21,31 +22,34 @@ from urllib.parse import quote
 
 from .marketplace import PluginMarketplace
 from .mirrors import MirrorManager
+from .package_limits import (
+    MAX_PLUGIN_ARCHIVE_FILES,
+    MAX_PLUGIN_FILE_BYTES,
+    MAX_PLUGIN_PACKAGE_BYTES,
+    MAX_PLUGIN_PATH_CHARS,
+    MAX_PLUGIN_UNPACKED_BYTES,
+)
+from .policy import PERMISSION_DETAILS, effective_plugin_permissions
 from .registry import ContributionRegistry, validate_contributes
+from .support import PLUGIN_TYPE_SUPPORT, plugin_type_support
 
 _ID_RE = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
 _ALLOWED_CONTROLS = {"switch", "text", "secret", "number", "select", "string-list"}
-_PLUGIN_TYPES = {
-    "channel-adapter",
-    "content-pack",
-    "theme",
-    "map-pack",
-    "import-export",
-    "provider",
-    "tool",
-}
+_PLUGIN_TYPES = set(PLUGIN_TYPE_SUPPORT)
 _STATIC_PLUGIN_TYPES = {"content-pack", "theme", "map-pack"}
-_ALLOWED_PERMISSIONS = {
-    "process.spawn": "启动独立插件进程",
-    "network.client": "由插件进程访问外部网络",
-    "diceframe.http": "调用 DiceFrame HTTP API",
-    "plugin.config": "读取插件普通配置",
-    "plugin.secrets": "读取插件敏感配置",
-    "plugin.data": "读写插件专属数据目录",
-    "content.read": "注册和读取内容包资源",
-    "content.import": "由用户主动导入内容到角色卡库或世界书",
-    "theme.tokens": "注册主题 CSS 变量",
-    "map.assets": "注册地图地点和素材资源",
+_ALLOWED_PERMISSIONS = PERMISSION_DETAILS
+
+_SAFE_PARENT_ENV = {
+    "COMSPEC",
+    "LANG",
+    "LC_ALL",
+    "PATH",
+    "PATHEXT",
+    "SYSTEMROOT",
+    "TEMP",
+    "TMP",
+    "TZ",
+    "WINDIR",
 }
 
 
@@ -72,6 +76,7 @@ class PluginHost:
         self.mirrors = MirrorManager(self.data_dir / "_marketplace" / "mirrors.json")
         self.marketplace = PluginMarketplace(self.mirrors)
         self.contributions = ContributionRegistry()
+        self._api_tokens: dict[str, str] = {}
 
     def discover(self) -> list[dict[str, Any]]:
         self.plugins.clear()
@@ -115,6 +120,7 @@ class PluginHost:
             "version": runtime.manifest.get("version", ""),
             "description": runtime.manifest.get("description", ""),
             "plugin_type": self._plugin_type(runtime.manifest),
+            "support": plugin_type_support(self._plugin_type(runtime.manifest)),
             "has_entrypoint": self._has_entrypoint(runtime.manifest),
             "enabled": bool(runtime.config.get("enabled")),
             "running": bool(runtime.process and runtime.process.returncode is None),
@@ -239,6 +245,8 @@ class PluginHost:
     async def install_from_zip(self, payload: bytes, *, overwrite: bool = False, allow_any_root: bool = False) -> dict[str, Any]:
         if not payload:
             raise ValueError("插件包为空")
+        if len(payload) > MAX_PLUGIN_PACKAGE_BYTES:
+            raise ValueError("插件包不能超过 20 MB")
         self.plugins_dir.mkdir(parents=True, exist_ok=True)
         self.data_dir.mkdir(parents=True, exist_ok=True)
         with tempfile.TemporaryDirectory(prefix="plugin-install-", dir=str(self.data_dir)) as temp_name:
@@ -287,19 +295,67 @@ class PluginHost:
                 if item["installed"]:
                     current = self.plugins[item["id"]].manifest
                     item["installed_version"] = current.get("version", "")
+                    metadata = self._load_marketplace_metadata(item["id"])
+                    item["installed_commit_sha"] = metadata.get("commit_sha", "")
+                    item["installed_update_policy"] = metadata.get("update_policy", "")
         return listing
 
     async def install_from_marketplace(self, plugin_id: str, *, overwrite: bool = False) -> dict[str, Any]:
         package = await self.marketplace.package_for_plugin(plugin_id)
         if not package.get("ok"):
             raise ValueError(str(package.get("error") or "插件市场安装失败"))
+        package_plugin_id, package_manifest = self._inspect_zip_manifest(package["payload"])
+        market_item = package.get("plugin") if isinstance(package.get("plugin"), dict) else {}
+        expected_version = str(market_item.get("version") or "")
+        package_version = str(package_manifest.get("version") or "")
+        if package_plugin_id != plugin_id:
+            raise ValueError("插件包 ID 与商店索引不一致，已拒绝安装")
+        if not expected_version or package_version != expected_version:
+            raise ValueError("插件包版本与商店索引不一致，已拒绝安装")
+        existing_metadata = self._load_marketplace_metadata(plugin_id)
+        commit_sha = str(market_item.get("commit_sha") or "")
+        if overwrite and commit_sha and existing_metadata.get("commit_sha") == commit_sha:
+            return {
+                "source": package.get("source", {}),
+                "marketplace": market_item,
+                "up_to_date": True,
+                **self.public_detail(plugin_id),
+            }
         detail = await self.install_from_zip(package["payload"], overwrite=overwrite, allow_any_root=True)
+        self._save_marketplace_metadata(plugin_id, {
+            "repository_url": market_item.get("repository_url", ""),
+            "release_tag": market_item.get("release_tag", ""),
+            "commit_sha": commit_sha,
+            "risk_level": market_item.get("risk_level", ""),
+            "update_policy": market_item.get("update_policy", "notify"),
+            "approved_permissions": market_item.get("approved_permissions", []),
+            "installed_version": package_version,
+        })
         return {"source": package.get("source", {}), "marketplace": package.get("plugin", {}), **detail}
 
     async def update_from_marketplace(self, plugin_id: str) -> dict[str, Any]:
         if plugin_id not in self.plugins:
             raise KeyError(f"插件不存在：{plugin_id}")
         return await self.install_from_marketplace(plugin_id, overwrite=True)
+
+    async def auto_update_safe_plugins(self) -> list[dict[str, Any]]:
+        results: list[dict[str, Any]] = []
+        for plugin_id in list(self.plugins):
+            metadata = self._load_marketplace_metadata(plugin_id)
+            if metadata.get("update_policy") != "automatic":
+                continue
+            try:
+                detail = await self.install_from_marketplace(plugin_id, overwrite=True)
+                results.append({
+                    "id": plugin_id,
+                    "ok": True,
+                    "updated": not bool(detail.get("up_to_date")),
+                    "version": detail.get("version", ""),
+                })
+            except Exception as exc:
+                self.logger.warning("声明型插件自动更新失败：%s: %s", plugin_id, exc)
+                results.append({"id": plugin_id, "ok": False, "error": str(exc)})
+        return results
 
     def list_mirrors(self) -> dict[str, Any]:
         return {"mirrors": self.mirrors.list()}
@@ -330,9 +386,11 @@ class PluginHost:
             if data_dir.exists():
                 shutil.rmtree(data_dir)
         self.plugins.pop(plugin_id, None)
+        self._api_tokens.pop(plugin_id, None)
         return {"id": plugin_id, "uninstalled": True, "data_deleted": bool(delete_data)}
 
     async def start_enabled(self) -> None:
+        await self.auto_update_safe_plugins()
         for plugin_id, runtime in self.plugins.items():
             if runtime.config.get("enabled") and runtime.status != "failed":
                 await self.start(plugin_id)
@@ -384,15 +442,7 @@ class PluginHost:
             runtime.status, runtime.error = "active", ""
             return
         runtime.status, runtime.error = "starting", ""
-        env = os.environ.copy()
-        env.update(self.base_env)
-        env["TRPG_PARENT_PID"] = str(os.getpid())
-        for key, field_schema in runtime.schema.get("properties", {}).items():
-            env_name = str((field_schema.get("ui") or {}).get("env") or "")
-            if not env_name:
-                continue
-            value = runtime.secrets.get(key, "") if self._sensitive(field_schema) else runtime.config.get(key, field_schema.get("default"))
-            env[env_name] = json.dumps(value, ensure_ascii=False) if isinstance(value, list) else str(value).lower() if isinstance(value, bool) else str(value or "")
+        env = self._build_process_env(plugin_id, runtime)
         command = runtime.manifest.get("entrypoint")
         if not isinstance(command, list) or not command or not all(isinstance(item, str) for item in command):
             runtime.status, runtime.error = "failed", "entrypoint 必须是非空字符串数组"
@@ -410,6 +460,42 @@ class PluginHost:
         except Exception as exc:
             runtime.status, runtime.error = "failed", str(exc)
             self.logger.exception("插件 %s 启动失败", plugin_id)
+
+    def _build_process_env(self, plugin_id: str, runtime: PluginRuntime) -> dict[str, str]:
+        env = {key: value for key, value in os.environ.items() if key.upper() in _SAFE_PARENT_ENV}
+        permissions = set(self._plugin_permissions(runtime))
+        if "diceframe.http" in permissions:
+            api_base = self.base_env.get("TRPG_API_BASE")
+            if api_base:
+                env["TRPG_API_BASE"] = api_base
+            env["TRPG_BOT_TOKEN"] = self._plugin_api_token(plugin_id)
+        plugin_data_dir = (self.data_dir / plugin_id / "runtime").resolve()
+        self._ensure_inside(self.data_dir, plugin_data_dir)
+        plugin_data_dir.mkdir(parents=True, exist_ok=True)
+        env.update({
+            "DICEFRAME_PLUGIN_ID": plugin_id,
+            "DICEFRAME_PLUGIN_DIR": str(runtime.directory.resolve()),
+            "DICEFRAME_PLUGIN_DATA_DIR": str(plugin_data_dir),
+            "TRPG_PARENT_PID": str(os.getpid()),
+        })
+        for key, field_schema in runtime.schema.get("properties", {}).items():
+            env_name = str((field_schema.get("ui") or {}).get("env") or "")
+            if not env_name:
+                continue
+            value = runtime.secrets.get(key, "") if self._sensitive(field_schema) else runtime.config.get(key, field_schema.get("default"))
+            env[env_name] = json.dumps(value, ensure_ascii=False) if isinstance(value, list) else str(value).lower() if isinstance(value, bool) else str(value or "")
+        return env
+
+    def authenticate_api_token(self, token: str) -> dict[str, Any] | None:
+        candidate = str(token or "").strip()
+        if not candidate:
+            return None
+        for plugin_id, expected in self._api_tokens.items():
+            if hmac.compare_digest(candidate, expected):
+                runtime = self.plugins.get(plugin_id)
+                if runtime and "diceframe.http" in self._plugin_permissions(runtime):
+                    return {"plugin_id": plugin_id, "permissions": self._plugin_permissions(runtime)}
+        return None
 
     async def stop(self, plugin_id: str) -> None:
         runtime = self._require(plugin_id)
@@ -438,6 +524,12 @@ class PluginHost:
     async def cleanup(self) -> None:
         for plugin_id in list(self.plugins):
             await self.stop(plugin_id)
+
+    async def rescan(self) -> list[dict[str, Any]]:
+        await self.cleanup()
+        discovered = self.discover()
+        await self.start_enabled()
+        return discovered
 
     async def _monitor_process(self, plugin_id: str, process: asyncio.subprocess.Process) -> None:
         try:
@@ -495,6 +587,34 @@ class PluginHost:
         self._atomic_json(folder / "config.json", runtime.config)
         self._atomic_json(folder / "secrets.json", runtime.secrets)
 
+    def _load_marketplace_metadata(self, plugin_id: str) -> dict[str, Any]:
+        path = self.data_dir / plugin_id / "marketplace.json"
+        if not path.exists():
+            return {}
+        loaded = json.loads(path.read_text(encoding="utf-8"))
+        return loaded if isinstance(loaded, dict) else {}
+
+    def _save_marketplace_metadata(self, plugin_id: str, metadata: dict[str, Any]) -> None:
+        folder = self.data_dir / plugin_id
+        folder.mkdir(parents=True, exist_ok=True)
+        self._atomic_json(folder / "marketplace.json", metadata)
+
+    def _plugin_api_token(self, plugin_id: str) -> str:
+        if plugin_id in self._api_tokens:
+            return self._api_tokens[plugin_id]
+        path = self.data_dir / plugin_id / "auth.json"
+        token = ""
+        if path.exists():
+            loaded = json.loads(path.read_text(encoding="utf-8"))
+            if isinstance(loaded, dict):
+                token = str(loaded.get("api_token") or "").strip()
+        if not token:
+            token = secrets.token_urlsafe(32)
+            path.parent.mkdir(parents=True, exist_ok=True)
+            self._atomic_json(path, {"api_token": token})
+        self._api_tokens[plugin_id] = token
+        return token
+
     def _load_runtime(self, plugin_dir: Path, *, require_directory_match: bool = True) -> tuple[str, PluginRuntime]:
         plugin_dir = plugin_dir.resolve()
         manifest_path = plugin_dir / "plugin.json"
@@ -518,6 +638,19 @@ class PluginHost:
         validate_contributes(manifest, plugin_dir)
         return plugin_id, PluginRuntime(manifest, schema, plugin_dir)
 
+    def _inspect_zip_manifest(self, payload: bytes) -> tuple[str, dict[str, Any]]:
+        if not payload:
+            raise ValueError("插件包为空")
+        if len(payload) > MAX_PLUGIN_PACKAGE_BYTES:
+            raise ValueError("插件包不能超过 20 MB")
+        self.data_dir.mkdir(parents=True, exist_ok=True)
+        with tempfile.TemporaryDirectory(prefix="plugin-inspect-", dir=str(self.data_dir)) as temp_name:
+            temp_dir = Path(temp_name)
+            self._extract_zip(payload, temp_dir)
+            source_dir = self._find_install_root(temp_dir)
+            plugin_id, runtime = self._load_runtime(source_dir, require_directory_match=False)
+            return plugin_id, dict(runtime.manifest)
+
     @staticmethod
     def _extract_zip(payload: bytes, target_dir: Path) -> None:
         try:
@@ -525,11 +658,28 @@ class PluginHost:
         except zipfile.BadZipFile as exc:
             raise ValueError("插件包不是有效 zip 文件") from exc
         with archive:
-            for info in archive.infolist():
-                name = info.filename
+            items = archive.infolist()
+            if len(items) > MAX_PLUGIN_ARCHIVE_FILES:
+                raise ValueError(f"插件包文件数量不能超过 {MAX_PLUGIN_ARCHIVE_FILES}")
+            total_unpacked = sum(info.file_size for info in items if not info.is_dir())
+            if total_unpacked > MAX_PLUGIN_UNPACKED_BYTES:
+                raise ValueError("插件包解压后不能超过 100 MB")
+            seen_paths: set[str] = set()
+            for info in items:
+                name = info.filename.replace("\\", "/")
                 parts = Path(name).parts
                 if not name or Path(name).is_absolute() or any(part == ".." for part in parts):
                     raise ValueError("插件包包含非法路径")
+                if len(name) > MAX_PLUGIN_PATH_CHARS:
+                    raise ValueError("插件包包含过长路径")
+                normalized = "/".join(parts).casefold()
+                if normalized in seen_paths:
+                    raise ValueError("插件包包含重复路径")
+                seen_paths.add(normalized)
+                if info.flag_bits & 0x1:
+                    raise ValueError("插件包不能包含加密文件")
+                if info.file_size > MAX_PLUGIN_FILE_BYTES:
+                    raise ValueError("插件包单个文件不能超过 25 MB")
                 file_type = (info.external_attr >> 16) & 0o170000
                 if file_type == 0o120000:
                     raise ValueError("插件包不能包含符号链接")
@@ -604,24 +754,7 @@ class PluginHost:
             raise ValueError(f"未知插件权限：{', '.join(unknown)}")
 
     def _plugin_permissions(self, runtime: PluginRuntime) -> list[str]:
-        declared = runtime.manifest.get("permissions")
-        if isinstance(declared, list) and declared:
-            return sorted(dict.fromkeys(str(item).strip() for item in declared if str(item).strip()))
-        inferred = {"plugin.config"}
-        if any(self._sensitive(field) for field in runtime.schema.get("properties", {}).values() if isinstance(field, dict)):
-            inferred.add("plugin.secrets")
-        plugin_type = self._plugin_type(runtime.manifest)
-        if self._has_entrypoint(runtime.manifest):
-            inferred.update({"process.spawn", "plugin.data"})
-        if plugin_type == "channel-adapter":
-            inferred.update({"network.client", "diceframe.http"})
-        elif plugin_type == "content-pack":
-            inferred.update({"content.read", "content.import"})
-        elif plugin_type == "theme":
-            inferred.add("theme.tokens")
-        elif plugin_type == "map-pack":
-            inferred.add("map.assets")
-        return sorted(inferred)
+        return effective_plugin_permissions(runtime.manifest, runtime.schema)
 
     def _plugin_permission_details(self, runtime: PluginRuntime) -> list[dict[str, str]]:
         return [

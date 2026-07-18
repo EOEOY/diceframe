@@ -111,7 +111,7 @@ class DiceFrameBridgeService:
         verb = aliases.get(verb.lower(), verb)
 
         if verb == "连接测试":
-            data = await self.client.list_games()
+            data = await self.client.ping()
             return f"DiceFrame 连接正常。当前服务中共有 {data.get('total', 0)} 个对局。"
         if verb == "解绑":
             await self.store.unbind_group(message.stream_id)

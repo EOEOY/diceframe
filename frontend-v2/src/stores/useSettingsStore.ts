@@ -1,7 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
 import { api, errorMessage } from '@/api/client'
-import type { AppConfig, TestResult } from '@/api/types'
+import type { AppConfig, BotTokenResponse, TestResult } from '@/api/types'
 
 export type SecretKey =
   | 'api_key' | 'embedding_api_key' | 'fallback1_api_key' | 'fallback2_api_key'
@@ -64,6 +64,15 @@ export const useSettingsStore = defineStore('settings', () => {
     await load()
   }
 
+  async function botToken(action: 'reveal' | 'regenerate' = 'reveal'): Promise<BotTokenResponse> {
+    const result = await api<BotTokenResponse>('/config/bot-token', {
+      method: 'POST',
+      body: JSON.stringify({ action }),
+    })
+    await load()
+    return result
+  }
+
   async function test(kind: 'model' | 'embedding' | 'proxy'): Promise<TestResult> {
     const path = kind === 'proxy' ? '/test-proxy' : kind === 'embedding' ? '/test-embedding' : '/test-connection'
     const body: Record<string, unknown> = {
@@ -83,5 +92,5 @@ export const useSettingsStore = defineStore('settings', () => {
     return api<TestResult>(path, { method: 'POST', body: JSON.stringify(body) })
   }
 
-  return { config, secrets, loading, error, load, saveSection, saveAccessPassword, clearProxy, test, setConfigField }
+  return { config, secrets, loading, error, load, saveSection, saveAccessPassword, clearProxy, botToken, test, setConfigField }
 })

@@ -455,6 +455,7 @@ async def create_game(api: "WebAPI", world_id: str, game_name: str = "",
                 min_template = {
                     "world_id": world_id,
                     "world_name": resolved_world_name,
+                    "custom": True,
                     "description": resolved_description,
                     "world_setting": description or base_template.get("world_setting", resolved_description),
                     "starter_scene": base_template.get("starter_scene", description[:120] if description else ""),

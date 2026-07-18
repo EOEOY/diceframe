@@ -27,6 +27,9 @@ class DiceFrameClient:
     async def list_games(self) -> dict[str, Any]:
         return await self._request("GET", "/api/games")
 
+    async def ping(self) -> dict[str, Any]:
+        return await self._request("GET", "/api/bot/ping")
+
     async def detail(self, game_key: str, actor: str = "") -> dict[str, Any]:
         return await self._request("GET", f"/api/games/{quote(game_key, safe='')}", actor=actor)
 
@@ -120,7 +123,7 @@ class DiceFrameClient:
         if not self.base_url:
             raise DiceFrameHTTPError("未配置 DiceFrame 服务地址")
         if auth and not self.bot_token:
-            raise DiceFrameHTTPError("未配置 DiceFrame Bot Token")
+            raise DiceFrameHTTPError("未配置 DiceFrame Bot API Token；请到 DiceFrame 设置 → Bot API 复制")
         if self._session is None or self._session.closed:
             timeout = aiohttp.ClientTimeout(total=self.timeout_sec)
             self._session = aiohttp.ClientSession(timeout=timeout)

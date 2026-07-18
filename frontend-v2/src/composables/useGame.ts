@@ -31,6 +31,8 @@ export function useGame(){
   let source:EventSource|null=null
   let pollTimer:number|undefined
   let refreshTimer:number|undefined
+  let reconnectTimer:number|undefined
+  let connectVersion=0
   const signatures:Record<string,string> = { detail:'', players:'', log:'', privateMessages:'', map:'', loreEntries:'', lore:'' }
   const player = computed(()=>players.value.find(p=>p.user_id===userId.value) || players.value[0])
   const isGm = computed(()=>!!detail.value && (!userId.value || (detail.value.gm_uid===userId.value && hasAccessToken())))
@@ -107,12 +109,28 @@ export function useGame(){
     }finally{if(!silent)loading.value=false}
   }
 
-  function connect(){
-    source?.close(); clearRefreshTimer(); if(pollTimer){clearInterval(pollTimer);pollTimer=undefined}
-    if(!currentGame.value)return
-    source=gameEventSource(currentGame.value)
-    source.onmessage=()=>{ if(pollTimer){clearInterval(pollTimer);pollTimer=undefined} scheduleSilentRefresh() }
-    source.onerror=()=>{ if(!pollTimer)pollTimer=window.setInterval(() => void refresh(true),30000) }
+  async function connect(){
+    const version=++connectVersion
+    source?.close(); source=null; clearRefreshTimer()
+    if(reconnectTimer){clearTimeout(reconnectTimer);reconnectTimer=undefined}
+    if(pollTimer){clearInterval(pollTimer);pollTimer=undefined}
+    const gameKey=currentGame.value
+    if(!gameKey)return
+    try{
+      const next=await gameEventSource(gameKey)
+      if(version!==connectVersion || gameKey!==currentGame.value){next.close();return}
+      source=next
+      source.onmessage=()=>{ if(pollTimer){clearInterval(pollTimer);pollTimer=undefined} scheduleSilentRefresh() }
+      source.onerror=()=>{
+        source?.close(); source=null
+        if(!pollTimer)pollTimer=window.setInterval(() => void refresh(true),30000)
+        if(!reconnectTimer)reconnectTimer=window.setTimeout(()=>{reconnectTimer=undefined;void connect()},5000)
+      }
+    }catch{
+      if(version!==connectVersion)return
+      if(!pollTimer)pollTimer=window.setInterval(() => void refresh(true),30000)
+      if(!reconnectTimer)reconnectTimer=window.setTimeout(()=>{reconnectTimer=undefined;void connect()},5000)
+    }
   }
   function selectGame(key:string){rememberGame(key);refresh();connect()}
   if(currentGame.value) rememberCurrentGame(currentGame.value, detail.value?.world_name || '')
@@ -127,6 +145,6 @@ export function useGame(){
     }
   })
   watch(() => route.query.user, () => { userId.value = routeUser() })
-  onBeforeUnmount(()=>{source?.close();clearRefreshTimer();if(pollTimer)clearInterval(pollTimer)})
+  onBeforeUnmount(()=>{connectVersion++;source?.close();clearRefreshTimer();if(pollTimer)clearInterval(pollTimer);if(reconnectTimer)clearTimeout(reconnectTimer)})
   return {currentGame,userId,detail,players,player,log,privateMessages,map,lore,loreEntries,loading,error,isGm,refresh,connect,selectGame}
 }

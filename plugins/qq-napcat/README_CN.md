@@ -1,11 +1,15 @@
 # QQ / NapCat 插件
 
+中文 | [English](README_EN.md)
+
 这是 DiceFrame 内置 QQ / NapCat 适配器的插件清单与配置说明包；运行代码由 DiceFrame 主程序提供。
 
 1. 在 NapCat 进入“网络设置 → 网络配置 → WebSocket 服务器”，启用服务并记下端口和 access_token。
 2. 在 DiceFrame 设置的插件页填写连接配置并启用。
 3. 在房主页复制 Bot 绑定命令并发送到目标群聊。
 4. 玩家发送 `@Bot 加入 角色名` 后可用自然语言行动。
+
+内置插件不需要填写 DiceFrame Bot API Token。该凭证由 DiceFrame 自动生成并注入；插件页只需要配置 NapCat 自身的 WebSocket 地址、端口和 access_token。
 
 常用命令：
 

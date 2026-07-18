@@ -1,12 +1,17 @@
 """通用插件 HTTP API。"""
 from __future__ import annotations
 from aiohttp import web
+from src.plugin_host.package_limits import MAX_PLUGIN_PACKAGE_BYTES
 from src.webui.routes._common import _get_api, _require_confirmed_request
-
-MAX_PLUGIN_PACKAGE_BYTES = 20 * 1024 * 1024
 
 async def api_plugins(request: web.Request) -> web.Response:
     return web.json_response(_get_api(request).list_plugins())
+
+async def api_plugins_rescan(request: web.Request) -> web.Response:
+    denied=_require_confirmed_request(request)
+    if denied is not None: return denied
+    result = await _get_api(request).rescan_plugins()
+    return web.json_response(result,status=200 if result.get("ok") else 400)
 
 async def api_plugin_detail(request: web.Request) -> web.Response:
     try: return web.json_response(_get_api(request).plugin_detail(request.match_info["plugin_id"]))
@@ -30,9 +35,12 @@ async def api_plugin_install(request: web.Request) -> web.Response:
     if denied is not None: return denied
     if request.content_type != "multipart/form-data":
         return web.json_response({"ok":False,"error":"插件安装需要 multipart/form-data"},status=400)
+    if request.content_length and request.content_length > MAX_PLUGIN_PACKAGE_BYTES + 1024 * 1024:
+        return web.json_response({"ok":False,"error":"插件包不能超过 20 MB"},status=413)
     try:
         reader = await request.multipart()
         payload = b""
+        filename = ""
         overwrite = False
         async for part in reader:
             if part.name in {"overwrite", "replace"}:
@@ -40,6 +48,7 @@ async def api_plugin_install(request: web.Request) -> web.Response:
                 continue
             if part.name not in {"file", "package"}:
                 continue
+            filename = str(part.filename or "").strip()
             chunks: list[bytes] = []
             size = 0
             while True:
@@ -52,7 +61,9 @@ async def api_plugin_install(request: web.Request) -> web.Response:
                 chunks.append(chunk)
             payload = b"".join(chunks)
         if not payload:
-            return web.json_response({"ok":False,"error":"缺少插件 zip 文件"},status=400)
+            return web.json_response({"ok":False,"error":"缺少 .dfplugin 插件文件"},status=400)
+        if not filename.lower().endswith(".dfplugin"):
+            return web.json_response({"ok":False,"error":"本地安装只接受 .dfplugin 文件；开源仓库请从插件商店安装"},status=400)
         result = await _get_api(request).install_plugin(payload, overwrite)
     except ValueError as exc:
         return web.json_response({"ok":False,"error":str(exc)},status=400)
@@ -198,6 +209,7 @@ async def api_plugin_clear_card_cache(request: web.Request) -> web.Response:
 
 def register_plugins(app: web.Application) -> None:
     app.router.add_get("/api/plugins",api_plugins)
+    app.router.add_post("/api/plugins/rescan",api_plugins_rescan)
     app.router.add_post("/api/plugins/install",api_plugin_install)
     app.router.add_get("/api/plugins/marketplace",api_plugin_marketplace)
     app.router.add_get("/api/plugins/contributions",api_plugin_contributions)

@@ -113,7 +113,8 @@ class MirrorManager:
         return [dict(mirror) for mirror in sorted(self.mirrors, key=lambda item: int(item.get("priority", 999)))]
 
     def enabled(self) -> list[dict[str, Any]]:
-        return [mirror for mirror in self.list() if mirror.get("enabled")]
+        enabled = [mirror for mirror in self.list() if mirror.get("enabled")]
+        return sorted(enabled, key=lambda mirror: 0 if mirror.get("id") == "github" else 1)
 
     def add(self, data: dict[str, Any]) -> dict[str, Any]:
         mirror_id = _clean_id(data.get("id"))
@@ -193,15 +194,36 @@ class MirrorManager:
             attempts=sum(1 for _ in mirrors) * self.max_attempts,
         )
 
-    async def fetch_github_url(self, url: str, *, mirror_id: str = "", binary: bool = False) -> FetchResult:
+    async def fetch_github_url(
+        self,
+        url: str,
+        *,
+        mirror_id: str = "",
+        binary: bool = False,
+        max_bytes: int | None = None,
+    ) -> FetchResult:
         normalized_url = validate_public_http_url(url)
         mirrors = [self._require(mirror_id)] if mirror_id else self.enabled()
         if not mirrors:
-            return await self._fetch(normalized_url, {"id": "direct", "name": "直接访问"}, 1, 1, binary=binary)
+            return await self._fetch(
+                normalized_url,
+                {"id": "direct", "name": "直接访问"},
+                1,
+                1,
+                binary=binary,
+                max_bytes=max_bytes,
+            )
         last = FetchResult(ok=False, error="未尝试")
         for index, mirror in enumerate(mirrors, 1):
             mirrored_url = self.mirror_github_url(normalized_url, mirror)
-            last = await self._fetch(mirrored_url, mirror, index, len(mirrors), binary=binary)
+            last = await self._fetch(
+                mirrored_url,
+                mirror,
+                index,
+                len(mirrors),
+                binary=binary,
+                max_bytes=max_bytes,
+            )
             if last.ok:
                 return last
         return FetchResult(ok=False, error=f"所有镜像源均失败：{last.error}", attempts=len(mirrors) * self.max_attempts)
@@ -295,6 +317,7 @@ class MirrorManager:
         *,
         binary: bool,
         max_attempts: int | None = None,
+        max_bytes: int | None = None,
     ) -> FetchResult:
         started = time.perf_counter()
         attempts = max_attempts or self.max_attempts
@@ -311,7 +334,18 @@ class MirrorManager:
                             text = await response.text()
                             last_error = f"HTTP {response.status}: {text[:160]}"
                             continue
-                        data: str | bytes = await response.read() if binary else await response.text()
+                        if max_bytes and response.content_length and response.content_length > max_bytes:
+                            last_error = f"下载内容超过限制：{max_bytes} bytes"
+                            continue
+                        if binary and max_bytes:
+                            chunks = bytearray()
+                            async for chunk in response.content.iter_chunked(64 * 1024):
+                                chunks.extend(chunk)
+                                if len(chunks) > max_bytes:
+                                    raise ValueError(f"下载内容超过限制：{max_bytes} bytes")
+                            data: str | bytes = bytes(chunks)
+                        else:
+                            data = await response.read() if binary else await response.text()
                         return FetchResult(
                             ok=True,
                             data=data,
@@ -346,6 +380,14 @@ def github_archive_url(repository_url: str, branch: str) -> str:
     if not clean_branch or ".." in clean_branch:
         raise ValueError("分支名称非法")
     return f"https://github.com/{owner}/{repo}/archive/refs/heads/{clean_branch}.zip"
+
+
+def github_commit_archive_url(repository_url: str, commit_sha: str) -> str:
+    owner, repo = parse_github_repository(repository_url)
+    normalized_sha = str(commit_sha or "").strip().lower()
+    if len(normalized_sha) != 40 or any(ch not in "0123456789abcdef" for ch in normalized_sha):
+        raise ValueError("Git commit SHA 必须是 40 位十六进制字符串")
+    return f"https://github.com/{owner}/{repo}/archive/{normalized_sha}.zip"
 
 
 def parse_github_repository(repository_url: str) -> tuple[str, str]:

@@ -17,6 +17,11 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+from src.template_catalog import is_user_template_file
+
 DIST_DIR = ROOT / "dist"
 BUILD_ROOT = DIST_DIR / "_release_build"
 
@@ -28,6 +33,7 @@ ROOT_FILES = [
     "README_EN.md",
     "docker-compose.yml",
     "requirements.txt",
+    "requirements-portable.lock",
     "web_server.py",
     "web_ui.bat",
 ]
@@ -154,9 +160,12 @@ def copy_file(src: Path, dst: Path) -> None:
 def copy_tree(src: Path, dst: Path) -> None:
     if not src.exists():
         return
+    template_kind = "rules" if src == ROOT / "templates" / "rules" else "worlds" if src == ROOT / "templates" / "worlds" else ""
     for path in src.rglob("*"):
         rel = path.relative_to(src)
         if is_excluded(rel):
+            continue
+        if path.is_file() and template_kind and is_user_template_file(path, template_kind):
             continue
         target = dst / rel
         if path.is_dir():
