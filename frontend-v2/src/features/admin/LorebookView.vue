@@ -45,6 +45,8 @@ const showNewWorld = ref(false)
 const newWorld = ref({ name: '', description: '', language: locale.value })
 const entries = computed(() => data.value.entries || [])
 const currentWorld = computed(() => worlds.value.find(w => worldIdOf(w) === currentWorldId.value))
+const activeLoreType = ref('all')
+const loreTypeOrder = ['npc', 'location', 'faction', 'item', 'event', 'puzzle', 'other'] as const
 
 function worldIdOf(w: WorldSummary | undefined): string { return String(w?.id || w?.world_id || '') }
 function worldNameOf(w: WorldSummary | undefined): string { return String(w?.name || w?.world_name || w?.id || '') }
@@ -86,6 +88,10 @@ function openLore(entry?: LoreEntry) {
 }
 
 function arrText(a: unknown) { return Array.isArray(a) ? a.join(t('listSeparator')) : '' }
+function normalizeLoreType(type: unknown): string {
+  const text = String(type || 'other')
+  return loreTypeOrder.includes(text as (typeof loreTypeOrder)[number]) ? text : 'other'
+}
 function typeLabel(type: string | undefined) {
   const labels: Record<string, MessageKey> = { npc: 'contentGroupNpc', location: 'loreTypeLocation', faction: 'loreTypeFaction', item: 'contentGroupItem', event: 'loreTypeEvent', puzzle: 'loreTypePuzzle', other: 'loreTypeOther' }
   const key = labels[String(type || '')]
@@ -99,6 +105,22 @@ function tierLabel(tier: string | undefined) {
 function loreBody(entry: LoreEntry) { return String(entry.content || '').trim() || t('noContent') }
 function loreKeywords(entry: LoreEntry) { return arrText(entry.keywords).slice(0, 80) }
 function loreConnections(entry: LoreEntry) { return arrText((entry as LoreEdit).connected_to).slice(0, 80) }
+function loreTypeCount(type: string) { return entries.value.filter(entry => normalizeLoreType(entry.type) === type).length }
+const loreTypeTabs = computed(() => [
+  { type: 'all', label: t('allLoreTypes'), count: entries.value.length },
+  ...loreTypeOrder.map(type => ({ type, label: typeLabel(type), count: loreTypeCount(type) })),
+])
+const loreSections = computed(() => {
+  const selected = activeLoreType.value
+  const types = selected === 'all' ? [...loreTypeOrder] : [selected]
+  return types
+    .map(type => ({
+      type,
+      label: typeLabel(type),
+      entries: entries.value.filter(entry => normalizeLoreType(entry.type) === type),
+    }))
+    .filter(section => selected !== 'all' || section.entries.length)
+})
 function setArr(field: keyof LoreEdit, e: Event) {
   const v = (e.target as HTMLInputElement).value.split(/[,，、]/).map(x => x.trim()).filter(Boolean)
   if (loreEdit.value) (loreEdit.value as Record<string, unknown>)[field] = v
@@ -254,28 +276,53 @@ async function importLore(e: Event) {
       {{ worldNameOf(currentWorld) || currentWorldId }} · {{ t('lorebookEntryCount', { count: entries.length }) }}
     </p>
 
-    <div v-if="entries.length" class="memory-list lore-list">
-      <article v-for="e in entries" :key="e.id || e.name" class="memory-row lore-row">
-        <div class="memory-row-main">
-          <div class="memory-row-head">
-            <strong>{{ e.name || t('unnamedLoreEntry') }}</strong>
-            <span class="badge">{{ typeLabel(e.type) }}</span>
-            <span class="badge" :class="{ low: e.tier === 'archived' }">{{ tierLabel(e.tier) }}</span>
-            <span v-if="e.unreliable" class="badge low">{{ t('unreliable') }}</span>
-            <span v-if="e.is_constant" class="badge">{{ t('constant') }}</span>
-          </div>
-          <p class="memory-row-body">{{ loreBody(e) }}</p>
-          <p v-if="loreKeywords(e) || loreConnections(e)" class="muted small lore-row-extra">
-            <span v-if="loreKeywords(e)">{{ t('keywords') }}: {{ loreKeywords(e) }}</span>
-            <span v-if="loreConnections(e)">{{ t('connections') }}: {{ loreConnections(e) }}</span>
-          </p>
-        </div>
-        <div class="memory-row-actions">
-          <button @click="openLore(e)">{{ t('edit') }}</button>
-          <button class="danger" @click="deleteLore(e)">{{ t('delete') }}</button>
-        </div>
-      </article>
+    <div v-if="entries.length" class="lore-type-tabs">
+      <button
+        v-for="tab in loreTypeTabs"
+        :key="tab.type"
+        :class="{ active: activeLoreType === tab.type }"
+        @click="activeLoreType = tab.type"
+      >
+        <span>{{ tab.label }}</span>
+        <strong>{{ tab.count }}</strong>
+      </button>
     </div>
+
+    <div v-if="loreSections.length" class="lore-categories">
+      <section v-for="section in loreSections" :key="section.type" class="lore-category-section">
+        <header class="lore-category-head">
+          <h2>{{ section.label }}</h2>
+          <span>{{ t('loreCategoryCount', { count: section.entries.length }) }}</span>
+        </header>
+        <div class="memory-list lore-list">
+          <article v-for="e in section.entries" :key="e.id || e.name" class="memory-row lore-row">
+            <div class="memory-row-main">
+              <div class="memory-row-head">
+                <strong>{{ e.name || t('unnamedLoreEntry') }}</strong>
+                <span class="badge">{{ typeLabel(e.type) }}</span>
+                <span class="badge" :class="{ low: e.tier === 'archived' }">{{ tierLabel(e.tier) }}</span>
+                <span v-if="e.unreliable" class="badge low">{{ t('unreliable') }}</span>
+                <span v-if="e.is_constant" class="badge">{{ t('constant') }}</span>
+              </div>
+              <p class="memory-row-body">{{ loreBody(e) }}</p>
+              <p v-if="loreKeywords(e) || loreConnections(e)" class="muted small lore-row-extra">
+                <span v-if="loreKeywords(e)">{{ t('keywords') }}: {{ loreKeywords(e) }}</span>
+                <span v-if="loreConnections(e)">{{ t('connections') }}: {{ loreConnections(e) }}</span>
+              </p>
+            </div>
+            <div class="memory-row-actions">
+              <button @click="openLore(e)">{{ t('edit') }}</button>
+              <button class="danger" @click="deleteLore(e)">{{ t('delete') }}</button>
+            </div>
+          </article>
+        </div>
+      </section>
+    </div>
+
+    <section v-else-if="entries.length" class="empty-panel">
+      <h2>{{ t('emptyLoreCategory') }}</h2>
+      <p class="muted">{{ t('chooseAnotherLoreCategory') }}</p>
+    </section>
 
     <section v-else-if="currentWorldId && !busy" class="empty-panel">
       <h2>{{ t('noLoreEntries') }}</h2>

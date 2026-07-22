@@ -8,7 +8,7 @@ import type { BotBindTokenResponse, CharacterCard, CharacterCardsResponse, Chara
 import { useGame } from '@/composables/useGame'
 import { useToast } from '@/composables/useToast'
 import { useConfirm } from '@/composables/useConfirm'
-import { useLocale } from '@/composables/useLocale'
+import { useLocale, type Locale } from '@/composables/useLocale'
 import { useSettingsStore } from '@/stores/useSettingsStore'
 import { buildJoinLink } from '@/utils/shareLink'
 import { copyToClipboard } from '@/utils/clipboard'
@@ -33,7 +33,7 @@ const game = useGame()
 const settings = useSettingsStore()
 const toast = useToast()
 const { confirm } = useConfirm()
-const { t } = useLocale()
+const { locale, setLocale, t } = useLocale()
 const help = ref(false), ruleMeta = ref<RuleMeta>({}), preview = ref(false), delegate = ref(false), cards = ref<CharacterCard[]>([]), showCards = ref(false), health = ref<HealthResponse>({ events: [] })
 const worldCandidates = ref<WorldCandidate[]>([]), showWorldSwitch = ref(false), showRoomPassword = ref(false), roomPasswordInput = ref('')
 const sidebarCollapsed = ref(localStorage.getItem('play_sidebar_collapsed') === '1')
@@ -43,6 +43,7 @@ const railCollapsed = ref(false)
 function toggleRail() { railCollapsed.value = !railCollapsed.value; localStorage.setItem('play_rail_collapsed', railCollapsed.value ? '1' : '0') }
 function errorMessage(error: unknown): string { return error instanceof Error ? error.message : String(error || t('operationFailed')) }
 function joinNames(names: string[]) { return names.filter(Boolean).join(t('listSeparator')) }
+function onLocaleChange(event: Event) { setLocale((event.target as HTMLSelectElement).value as Locale) }
 
 const actorId = computed(() => game.userId.value || game.player.value?.user_id || game.detail.value?.gm_uid || '')
 const serverJudging = computed(() => game.detail.value?.state === 'active_judgment')
@@ -353,6 +354,13 @@ watch(() => game.detail.value?.solo_mode, (solo, prev) => {
         <span v-if="preview" class="busy">{{ t('hostPreview') }}</span>
         <button v-if="preview" @click="toggleDelegate">{{ delegate ? t('disableDelegate') : t('enableDelegate') }}</button>
         <span v-if="game.loading.value" class="busy">{{ t('updating') }}</span>
+        <label v-if="isPlayer" class="locale-select play-locale-select">
+          <span>{{ t('language') }}</span>
+          <select :value="locale" @change="onLocaleChange">
+            <option value="zh-CN">{{ t('chinese') }}</option>
+            <option value="en">{{ t('english') }}</option>
+          </select>
+        </label>
         <button @click="openCards">{{ t('characters') }}</button>
         <button @click="help = true">{{ t('rule') }}</button>
         <button @click="game.refresh()">{{ t('refresh') }}</button>

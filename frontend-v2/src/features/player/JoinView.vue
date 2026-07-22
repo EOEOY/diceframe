@@ -5,7 +5,7 @@ import { api, errorMessage } from '@/api/client'
 import type { CharacterCard, CharacterCardsResponse, CharacterListResponse, CharacterSkill, GameDetail, PlayerCreateResponse, RuleAttribute, RuleMeta } from '@/api/types'
 import { rememberCurrentGame } from '@/stores/gameContext'
 import { attrDisplayName, suggestedAttributes, skillPointCost } from '@/utils/ruleSchema'
-import { useLocale } from '@/composables/useLocale'
+import { useLocale, type Locale } from '@/composables/useLocale'
 
 interface JoinSkill { name: string; value: string | number }
 interface JoinForm {
@@ -21,7 +21,7 @@ interface JoinForm {
 }
 
 const route = useRoute(), router = useRouter()
-const { t } = useLocale()
+const { locale, setLocale, t } = useLocale()
 const gameKey = computed(() => String(route.query.game || ''))
 const linkUser = computed(() => route.query.user ? String(route.query.user) : '')
 const detail = ref<Partial<GameDetail>>({})
@@ -68,6 +68,10 @@ const diceHint = computed(() =>
     ? t('dndDiceHint')
     : ''
 )
+
+function onLocaleChange(event: Event) {
+  setLocale((event.target as HTMLSelectElement).value as Locale)
+}
 
 function skillToForm(skill: string | CharacterSkill): JoinSkill {
   return typeof skill === 'string' ? { name: skill, value: '' } : { name: skill.name, value: skill.value ?? '' }
@@ -168,7 +172,16 @@ async function create() {
         <h1>{{ detail.world_name || t('joinGame') }}</h1>
         <p>{{ detail.scene || t('createCharacterStartAdventure') }}</p>
       </div>
-      <button @click="router.push({ name: 'overview' })">{{ t('backToOverview') }}</button>
+      <div class="join-actions">
+        <label class="locale-select">
+          <span>{{ t('language') }}</span>
+          <select :value="locale" @change="onLocaleChange">
+            <option value="zh-CN">{{ t('chinese') }}</option>
+            <option value="en">{{ t('english') }}</option>
+          </select>
+        </label>
+        <button @click="router.push({ name: 'overview' })">{{ t('backToOverview') }}</button>
+      </div>
     </header>
 
     <section v-if="needRoomPassword" class="join-form room-gate">
