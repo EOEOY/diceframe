@@ -18,8 +18,15 @@ export function normalizeLocale(value: unknown): Locale {
 }
 
 function initialLocale(): Locale {
-  if (typeof localStorage === 'undefined') return 'zh-CN'
-  return normalizeLocale(localStorage.getItem(LOCALE_STORAGE_KEY))
+  if (typeof localStorage !== 'undefined') {
+    const stored = localStorage.getItem(LOCALE_STORAGE_KEY)
+    if (stored) return normalizeLocale(stored)
+  }
+  if (typeof navigator !== 'undefined') {
+    const preferred = navigator.languages?.find(Boolean) || navigator.language
+    if (preferred) return normalizeLocale(preferred)
+  }
+  return 'zh-CN'
 }
 
 export const i18n = createI18n({
