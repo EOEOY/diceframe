@@ -1,25 +1,19 @@
-# DiceFrame v1.4.0
+# DiceFrame v1.4.1
 
 ## 中文
 
-本版本改善了分享页面的多语言体验，并为世界书增加分类浏览。
+本版本修复了机器人桥接的玩家入口链接和移动端游玩页布局问题。
 
-### 改进
+### 修复
 
-- 分享链接会根据浏览器语言自动选择中文或英文。
-- 角色创建页和玩家游玩页新增语言切换入口。
-- 世界书按 NPC、地点、阵营、物品、事件、谜题和其他类型分类展示。
-- 世界书分类支持数量统计和快速筛选。
-- 补充浏览器语言检测与响应式布局自动测试。
+- 机器人在群聊中给出的玩家入口链接现在优先使用 DiceFrame 服务端配置的公开地址，避免暴露内部地址；插件显式配置的公开地址仍具有最高优先级。
+- 修复移动端游玩页在内容较长时被截断、无法滚动的问题；时间线和操作区在小屏上可正常显示与滚动。
 
 ## English
 
-This release improves multilingual shared pages and adds categorized lorebook browsing.
+This release fixes bot bridge join links and the mobile play page layout.
 
-### Improvements
+### Fixes
 
-- Shared links now follow the browser language automatically.
-- Character creation and player views now include a language switch.
-- Lorebook entries are grouped by NPCs, locations, factions, items, events, puzzles, and other types.
-- Lorebook categories include counts and quick filtering.
-- Added browser-language and responsive-layout test coverage.
+- Join links returned by the bot in group chat now prefer the public address configured on the DiceFrame server, instead of leaking the internal address. An explicit plugin override still takes the highest priority.
+- Fixed the mobile play page clipping long content and blocking scrolling; the timeline and controls now display and scroll correctly on small screens.

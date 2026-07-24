@@ -169,13 +169,13 @@ class DiceFrameBridgeService:
         _group, game_key, actor = self._require_actor_or_group_gm(message)
         detail = await self.client.detail(game_key, actor)
         world = str(detail.get("world_name") or game_key)
-        link = self._join_link(game_key)
+        link = await self._join_link(game_key)
         return f"DiceFrame《{world}》玩家入口：{link}" if link else f"DiceFrame《{world}》已绑定。"
 
     async def _character_guide(self, message: BridgeInput, *, ai: bool) -> str:
         _group, game_key, actor = self._require_actor_or_group_gm(message)
         data = await self.client.characters(game_key, actor)
-        link = self._join_link(game_key)
+        link = await self._join_link(game_key)
         lines = character_creation_lines(data, command_prefix=self.config.command_prefix)
         if ai:
             lines.insert(0, "AI 辅助车卡请在网页入口选择 AI 生成，或按群聊适配器的私聊向导继续。")
@@ -203,7 +203,7 @@ class DiceFrameBridgeService:
         player = next((item for item in data.get("players", []) if isinstance(item, dict) and str(item.get("user_id") or "") == actor), None)
         if not player:
             return "未找到当前角色。"
-        return self._format_status(player, group)
+        return await self._format_status(player, group)
 
     async def _recap(self, message: BridgeInput) -> str:
         _group, game_key, actor = self._require_actor_or_group_gm(message)
@@ -324,7 +324,7 @@ class DiceFrameBridgeService:
             and (actor == gm_uid or str(item.get("uid") or "") == actor)
         ]
 
-    def _format_status(self, player: dict[str, Any], group: dict[str, Any]) -> str:
+    async def _format_status(self, player: dict[str, Any], group: dict[str, Any]) -> str:
         name = str(player.get("character_name") or player.get("user_id") or "角色")
         sheet = player.get("character_sheet") if isinstance(player.get("character_sheet"), dict) else {}
         lines = [f"{name} 状态"]
@@ -343,7 +343,7 @@ class DiceFrameBridgeService:
         status = sheet.get("status")
         if status:
             lines.append(f"状态：{status}")
-        link = self._join_link(str(group.get("game_key") or ""), str(player.get("user_id") or ""))
+        link = await self._join_link(str(group.get("game_key") or ""), str(player.get("user_id") or ""))
         if link:
             lines.append(f"网页入口：{link}")
         return "\n".join(lines)
@@ -399,9 +399,13 @@ class DiceFrameBridgeService:
         allowed = {item.strip().lower() for item in self.config.advance_allowed_users if item.strip()}
         return user.lower() in allowed
 
-    def _join_link(self, game_key: str, user: str = "") -> str:
-        base = self.config.public_base_url or self.client.base_url
-        return build_join_link(base, game_key, user) if base and game_key else ""
+    async def _join_link(self, game_key: str, user: str = "") -> str:
+        if not game_key:
+            return ""
+        override = str(self.config.public_base_url or "").strip()
+        if override:
+            return build_join_link(override, game_key, user)
+        return await self.client.build_join_link(game_key, user)
 
     def _split_reply(self, reply: str) -> list[str]:
         max_chars = max(200, int(self.config.max_reply_chars or 1800))
