@@ -480,8 +480,8 @@ body.light .update-dialog-notes{background:rgba(255,247,223,.7);border-color:rgb
 }
 .scene-strip p{display:none}
 @media(max-width:800px){
-  .play-page{height:100dvh;min-height:0;display:flex;flex-direction:column;overflow:hidden}
-  .workspace .play-page{height:calc(100dvh - 44px)}
+  .play-page{min-height:100dvh;display:flex;flex-direction:column;overflow:visible}
+  .workspace .play-page{min-height:calc(100dvh - 44px)}
   .play-hud{flex:0 0 auto;grid-template-columns:minmax(0,1fr) auto;grid-template-areas:"title tools";align-items:center;min-height:52px;padding:5px 7px;gap:6px}
   .play-hud .play-hud-main{align-items:center;min-width:0}
   .play-eyebrow,.play-hud-stats{display:none}
@@ -490,9 +490,8 @@ body.light .update-dialog-notes{background:rgba(255,247,223,.7);border-color:rgb
   .play-toolbar{min-width:0;max-width:48vw;justify-content:flex-end;flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none}
   .play-toolbar::-webkit-scrollbar{display:none}
   .play-toolbar button{flex:0 0 auto;min-height:30px;padding:0 7px;font-size:12px}
-  .play-layout,.play-layout.no-console,.play-layout.collapsed,.play-layout.collapsed.no-console{flex:1 1 auto;min-height:0;height:auto;overflow-y:auto}
-  .play-main{height:calc(100dvh - 52px);min-height:0;padding:6px;gap:5px;overflow:hidden}
-  .workspace .play-main{height:calc(100dvh - 96px)}
+  .play-layout,.play-layout.no-console,.play-layout.collapsed,.play-layout.collapsed.no-console{flex:none;min-height:0;height:auto;overflow:visible;grid-template-columns:1fr;grid-template-areas:"main" "sidebar" "controls"}
+  .play-main{height:auto;min-height:72vh;padding:6px;gap:5px;overflow:visible}
   .scene-strip{display:flex;align-items:center;padding:5px 7px;gap:7px;min-height:34px}
   .scene-title{flex:1 1 auto;min-width:0}
   .scene-label,.scene-strip p{display:none}
@@ -500,7 +499,7 @@ body.light .update-dialog-notes{background:rgba(255,247,223,.7);border-color:rgb
   .scene-chips{flex:0 1 auto;max-width:58%;justify-content:flex-end;flex-wrap:nowrap;overflow:hidden}
   .scene-chips span{flex:0 1 auto;min-width:0;max-width:112px;padding:2px 6px;font-size:11px}
   .scene-chips span:nth-child(n+3){display:none}
-  .timeline-wrap{flex:1 1 0;min-height:0}
+  .timeline-wrap{flex:1 1 0;min-height:320px}
   .composer{flex:0 0 auto;padding:6px}
   .composer-row{grid-template-columns:minmax(0,1fr) 72px;gap:6px}
   .composer-row button{width:auto;padding:0 6px}
